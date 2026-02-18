@@ -1,0 +1,16 @@
+# Keep nested HOOMD source as its own repository
+hoomd-blue/
+
+# Simulation outputs
+*.gsd
+*.csv
+*.pkl
+**/results/
+**/logs/
+
+# Local binaries and caches
+simulation_package/third_party/
+**/__pycache__/
+*.pyc
+*.nbc
+*.nbi

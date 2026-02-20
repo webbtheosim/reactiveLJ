@@ -7,9 +7,12 @@ hoomd-blue/
 *.pkl
 **/results/
 **/logs/
+simulation_package/**/data_generation/outputs/
+simulation_package/**/tersoff_comparison/outputs/
+simulation_package/melt/energy_conservation_dt=*/
 
 # Local binaries and caches
-simulation_package/third_party/
+simulation_package/melt/third_party/
 **/__pycache__/
 *.pyc
 *.nbc

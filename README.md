@@ -11,5 +11,6 @@ The workflows in this project are designed to:
 
 ## Repository Layout
 
-- `simulation_package/`: simulation inputs, analysis scripts, validation runs, and job submission files.
+- `simulation_package/melt/`: melt data generation, analysis, energy checks, and Tersoff comparison workflows.
+- `simulation_package/single_chain/`: single-chain data generation and analysis workflows.
 - `hoomd-blue/`: HOOMD-blue source tree, maintained as its own nested Git repository.

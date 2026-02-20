@@ -1,8 +1,8 @@
 """Run a single-chain ReactiveLJ simulation replicate.
 
 This script mirrors the melt protocol parameters and staging while constraining
-the system to one chain in a large cubic box. The box edge length is set to the
-total number of monomers in the chain to avoid periodic self-interactions.
+the system to one chain in a cubic box. By default, the box edge length is
+fixed to 100 (i.e., a 100x100x100 box), and can be overridden via CLI.
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ except Exception as exc:  # pragma: no cover - required dependency
 class SimulationConfig:
     # System size and thermodynamic state
     n_chains: int = 1
-    chain_length: int = 40
+    chain_length: int = 400
     temperature: float = 1.0
 
     # KG bonded parameters
@@ -44,7 +44,7 @@ class SimulationConfig:
     k_bend: float = 1.5
 
     # Sticker placement
-    stickers_per_chain: int = 4
+    stickers_per_chain: int = 40
     # Evenly spaced along the backbone; segment/offset are deprecated.
     segment_length: int = 10  # deprecated (unused)
     sticker_offset_in_segment: int = 4  # deprecated (unused)
@@ -113,13 +113,19 @@ def parse_args() -> argparse.Namespace:
         "--chain-length",
         type=int,
         default=None,
-        help="Single-chain length in monomers (default 40).",
+        help="Single-chain length in monomers (default 400).",
     )
     parser.add_argument(
         "--stickers-per-chain",
         type=int,
         default=None,
-        help="Number of stickers on the single chain (default 4).",
+        help="Number of stickers on the single chain (default 40).",
+    )
+    parser.add_argument(
+        "--box-length",
+        type=float,
+        default=100.0,
+        help="Cubic box edge length (default 100.0).",
     )
     parser.add_argument(
         "--device", choices=["gpu", "cpu"], default="gpu", help="HOOMD device backend."
@@ -186,11 +192,6 @@ def parse_args() -> argparse.Namespace:
         help="ReactiveLJ weakening exponent (default uses script config).",
     )
     return parser.parse_args()
-
-
-def compute_box_length(n_particles: int) -> float:
-    """Use a box edge equal to total monomer count for the single chain."""
-    return float(n_particles)
 
 
 @numba.njit(cache=True)
@@ -678,7 +679,7 @@ def write_metadata(
             "seed": seed,
             "n_particles": cfg.n_chains * cfg.chain_length,
             "simulation_mode": "single_chain",
-            "box_length_rule": "L = n_particles",
+            "box_length_rule": "fixed",
         }
     )
     if target_box_length is not None:
@@ -800,6 +801,8 @@ def main() -> None:
         raise ValueError("chain_length must be at least 3.")
     if cfg.stickers_per_chain < 0:
         raise ValueError("stickers_per_chain must be non-negative.")
+    if args.box_length <= 0:
+        raise ValueError("box_length must be positive.")
 
     seed = args.seed
     if seed is None:
@@ -811,8 +814,7 @@ def main() -> None:
     os.makedirs(output_dir, exist_ok=True)
 
     metadata_path = os.path.join(output_dir, "metadata.json")
-    n_particles = cfg.n_chains * cfg.chain_length
-    target_box_length = compute_box_length(n_particles)
+    target_box_length = float(args.box_length)
     initial_box_length = target_box_length
     write_metadata(
         metadata_path,
@@ -889,7 +891,9 @@ def main() -> None:
         start_eps = 1.0e-4
         end_eps = cfg.reactive_epsilon
         total_steps = cfg.reactive_equil_steps
-        ramp_step = 1000
+        # Use larger epsilon-ramp chunks in the single-chain workflow to avoid
+        # excessive segment overhead during long reactive equilibration windows.
+        ramp_step = 10_000
         n_segments = (total_steps + ramp_step - 1) // ramp_step
         reactive = None
         report_interval = max(1, n_segments // 20)

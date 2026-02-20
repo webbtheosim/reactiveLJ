@@ -27,7 +27,21 @@ conda activate '/home/mc7345/micromamba/envs/reactiveLJ_paper'
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WORK_DIR="${SCRIPT_DIR}"
+WORK_DIR="${SLURM_SUBMIT_DIR:-${SCRIPT_DIR}}"
+if [[ ! -f "${WORK_DIR}/analysis/analyze_trajectories.py" ]]; then
+    ALT_WORK_DIR="${SLURM_SUBMIT_DIR:-}/simulation_package/single_chain"
+    if [[ -f "${ALT_WORK_DIR}/analysis/analyze_trajectories.py" ]]; then
+        WORK_DIR="${ALT_WORK_DIR}"
+    else
+        WORK_DIR="${SCRIPT_DIR}"
+    fi
+fi
+WORK_DIR="$(cd "${WORK_DIR}" && pwd)"
+if [[ ! -f "${WORK_DIR}/analysis/analyze_trajectories.py" ]]; then
+    echo "ERROR: Could not resolve single_chain work directory."
+    echo "Submit from simulation_package/single_chain or repo root."
+    exit 1
+fi
 log "Step 5/8: Changing directory to ${WORK_DIR}"
 cd "${WORK_DIR}"
 log "Step 6/8: Ensuring logs directory exists"

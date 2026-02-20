@@ -21,7 +21,11 @@ conda activate '/home/mc7345/micromamba/envs/reactiveLJ_paper'
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WORK_DIR="${SCRIPT_DIR}"
+WORK_DIR="${SLURM_SUBMIT_DIR:-${SCRIPT_DIR}}"
+if [[ ! -f "${WORK_DIR}/data_generation/run_reactive_lj.py" ]]; then
+    WORK_DIR="${SCRIPT_DIR}"
+fi
+WORK_DIR="$(cd "${WORK_DIR}" && pwd)"
 cd "${WORK_DIR}"
 mkdir -p logs
 

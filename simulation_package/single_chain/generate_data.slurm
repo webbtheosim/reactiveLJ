@@ -4,7 +4,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --time=01:02:00
 #SBATCH --cpus-per-task=1
-#SBATCH --mem=1G
+#SBATCH --mem=16G
 #SBATCH --array=0-59%24
 #SBATCH --output=logs/generate_data_%A_%a.out
 
@@ -20,7 +20,21 @@ conda activate '/home/mc7345/micromamba/envs/reactiveLJ_paper'
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WORK_DIR="${SCRIPT_DIR}"
+WORK_DIR="${SLURM_SUBMIT_DIR:-${SCRIPT_DIR}}"
+if [[ ! -f "${WORK_DIR}/data_generation/run_reactive_lj.py" ]]; then
+    ALT_WORK_DIR="${SLURM_SUBMIT_DIR:-}/simulation_package/single_chain"
+    if [[ -f "${ALT_WORK_DIR}/data_generation/run_reactive_lj.py" ]]; then
+        WORK_DIR="${ALT_WORK_DIR}"
+    else
+        WORK_DIR="${SCRIPT_DIR}"
+    fi
+fi
+WORK_DIR="$(cd "${WORK_DIR}" && pwd)"
+if [[ ! -f "${WORK_DIR}/data_generation/run_reactive_lj.py" ]]; then
+    echo "ERROR: Could not resolve single_chain work directory."
+    echo "Submit from simulation_package/single_chain or repo root."
+    exit 1
+fi
 cd "${WORK_DIR}"
 mkdir -p logs
 
@@ -36,8 +50,9 @@ PROD_STEPS=${PROD_STEPS:-1000000}
 # Per request, default to equal-length no-output equilibration immediately before production.
 PRE_PROD_EQ_STEPS=${PRE_PROD_EQ_STEPS:-${PROD_STEPS}}
 WEAKENING_EXPONENT=${WEAKENING_EXPONENT:-4}
-CHAIN_LENGTH=${CHAIN_LENGTH:-40}
-STICKERS_PER_CHAIN=${STICKERS_PER_CHAIN:-4}
+CHAIN_LENGTH=${CHAIN_LENGTH:-400}
+STICKERS_PER_CHAIN=${STICKERS_PER_CHAIN:-40}
+BOX_LENGTH=${BOX_LENGTH:-100}
 
 TASK_ID=${SLURM_ARRAY_TASK_ID}
 if [[ ${TASK_ID} -ge ${TOTAL} ]]; then
@@ -56,6 +71,7 @@ python "${WORK_DIR}/data_generation/run_reactive_lj.py" \
     --output-root "${WORK_DIR}/data_generation/outputs" \
     --chain-length "${CHAIN_LENGTH}" \
     --stickers-per-chain "${STICKERS_PER_CHAIN}" \
+    --box-length "${BOX_LENGTH}" \
     --weakening-exponent "${WEAKENING_EXPONENT}" \
     --frame-steps "${FRAME_STEPS}" \
     --unsticky-equil-steps "${UNSTICKY_EQ_STEPS}" \

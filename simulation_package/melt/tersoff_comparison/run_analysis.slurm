@@ -27,8 +27,12 @@ conda activate '/home/mc7345/micromamba/envs/reactiveLJ_paper'
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TERSOFF_DIR="${SCRIPT_DIR}"
-WORK_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+TERSOFF_DIR="${SLURM_SUBMIT_DIR:-${SCRIPT_DIR}}"
+if [[ ! -f "${TERSOFF_DIR}/analyze_trajectories.py" ]]; then
+    TERSOFF_DIR="${SCRIPT_DIR}"
+fi
+TERSOFF_DIR="$(cd "${TERSOFF_DIR}" && pwd)"
+WORK_DIR="$(cd "${TERSOFF_DIR}/.." && pwd)"
 
 log "Step 5/8: Changing directory to ${WORK_DIR}"
 cd "${WORK_DIR}"

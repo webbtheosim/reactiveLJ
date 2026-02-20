@@ -12,7 +12,11 @@ module purge
 source ~/.bashrc
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WORK_DIR="${SCRIPT_DIR}"
+WORK_DIR="${SLURM_SUBMIT_DIR:-${SCRIPT_DIR}}"
+if [[ ! -f "${WORK_DIR}/data_generation/run_reactivelj_singlechain_test_cpu.py" ]]; then
+    WORK_DIR="${SCRIPT_DIR}"
+fi
+WORK_DIR="$(cd "${WORK_DIR}" && pwd)"
 LOCAL_CUDA_LIBDIR="${WORK_DIR}/third_party/cuda/lib"
 REQUIRED_CUDA_LIBS=(
     libcudart.so.12

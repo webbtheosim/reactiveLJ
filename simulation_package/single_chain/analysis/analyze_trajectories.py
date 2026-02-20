@@ -115,6 +115,7 @@ def write_autocorr_fit_plot(
     title: str,
     y_label: str,
 ) -> None:
+    del title  # Plot titles intentionally omitted for publication styling.
     median = np.median(values, axis=0)
     q1 = np.percentile(values, 25.0, axis=0)
     q3 = np.percentile(values, 75.0, axis=0)
@@ -123,7 +124,7 @@ def write_autocorr_fit_plot(
 
     fig, ax = plt.subplots(figsize=(6.2, 4.2))
     ax.fill_between(time, q1, q3, color="#9e9e9e", alpha=0.35, label="IQR")
-    ax.plot(time, median, color="#2b2b2b", lw=2.0, label="Median")
+    ax.plot(time, median, color="#121212", lw=2.0, label="Median")
 
     if np.isfinite(tau_fit):
         fit_curve = np.exp(-time / tau_fit)
@@ -132,11 +133,10 @@ def write_autocorr_fit_plot(
             fit_curve,
             color="#e77500",
             lw=2.0,
-            label=f"Exponential fit (tau={tau_fit:.3g})",
+            label=rf"$C_s(\Delta t)=\exp(-\Delta t/\tau),\ \tau={tau_fit:.3g}$",
         )
 
-    ax.set_title(title)
-    ax.set_xlabel("Time")
+    ax.set_xlabel("Time lag")
     ax.set_ylabel(y_label)
     ax.set_ylim(0.0, 1.0)
     ax.grid(alpha=0.2)
@@ -152,16 +152,16 @@ def write_rg_summary_plot(
     rg_values: np.ndarray,
     epsilon: float,
 ) -> None:
+    del epsilon
     median = np.median(rg_values, axis=0)
     q1 = np.percentile(rg_values, 25.0, axis=0)
     q3 = np.percentile(rg_values, 75.0, axis=0)
 
     fig, ax = plt.subplots(figsize=(6.4, 4.2))
     ax.fill_between(time, q1, q3, color="#9e9e9e", alpha=0.35, label="IQR")
-    ax.plot(time, median, color="#2b2b2b", lw=2.0, label="Median")
-    ax.set_title(f"R_g(t) Summary (eps={epsilon:g})")
+    ax.plot(time, median, color="#121212", lw=2.0, label="Median")
     ax.set_xlabel("Time")
-    ax.set_ylabel("R_g")
+    ax.set_ylabel(r"$R_\mathrm{g}$")
     ax.grid(alpha=0.2)
     ax.legend(frameon=False)
     fig.tight_layout()
@@ -177,6 +177,7 @@ def write_scalar_violin_vs_epsilon_plot(
     y_label: str,
     ylim: Tuple[float, float] | None = None,
 ) -> None:
+    del title  # Plot titles intentionally omitted for publication styling.
     violin_data: List[np.ndarray] = []
     positions: List[float] = []
     for eps, values in zip(epsilon_values, data):
@@ -204,7 +205,6 @@ def write_scalar_violin_vs_epsilon_plot(
         ax.vlines(eps, q1, q3, color="#2b2b2b", lw=2.0)
         ax.scatter([eps], [med], color="#2b2b2b", s=18, zorder=3)
 
-    ax.set_title(title)
     ax.set_xlabel("epsilon")
     ax.set_ylabel(y_label)
     ax.set_xticks(epsilon_values)
@@ -229,6 +229,7 @@ def write_dual_scalar_violin_vs_epsilon_plot(
     left_color: str,
     right_color: str,
 ) -> None:
+    del title  # Plot titles intentionally omitted for publication styling.
     left_positions: List[float] = []
     left_violin_data: List[np.ndarray] = []
     left_medians: List[float] = []
@@ -307,7 +308,6 @@ def write_dual_scalar_violin_vs_epsilon_plot(
     ]
     ax.legend(handles=legend_handles, frameon=False)
 
-    ax.set_title(title)
     ax.set_xlabel("epsilon")
     ax.set_ylabel(y_label)
     ax.set_xticks(epsilon_values)
@@ -337,11 +337,59 @@ def write_rg_time_vs_epsilon_plot(
             continue
         ax.plot(time, med, lw=2.0, color=colors[idx], label=f"eps={eps:g}")
 
-    ax.set_title("Median R_g(t) vs epsilon")
     ax.set_xlabel("Time")
-    ax.set_ylabel("R_g")
+    ax.set_ylabel(r"$R_\mathrm{g}$")
     ax.grid(alpha=0.2)
     ax.legend(frameon=False, ncol=2)
+    fig.tight_layout()
+    fig.savefig(path, dpi=220)
+    plt.close(fig)
+
+
+def write_median_iqr_line_vs_epsilon_plot(
+    path: str,
+    epsilon_values: List[float],
+    data: List[np.ndarray],
+    y_label: str,
+    ylim: Tuple[float, float] | None = None,
+) -> None:
+    if not epsilon_values:
+        return
+
+    medians: List[float] = []
+    q1s: List[float] = []
+    q3s: List[float] = []
+    valid_eps: List[float] = []
+
+    for eps, values in zip(epsilon_values, data):
+        arr = np.asarray(values, dtype=np.float64)
+        arr = arr[np.isfinite(arr)]
+        if arr.size == 0:
+            continue
+        valid_eps.append(float(eps))
+        medians.append(float(np.median(arr)))
+        q1s.append(float(np.percentile(arr, 25.0)))
+        q3s.append(float(np.percentile(arr, 75.0)))
+
+    if not valid_eps:
+        return
+
+    x = np.asarray(valid_eps, dtype=np.float64)
+    med = np.asarray(medians, dtype=np.float64)
+    q1 = np.asarray(q1s, dtype=np.float64)
+    q3 = np.asarray(q3s, dtype=np.float64)
+
+    fig, ax = plt.subplots(figsize=(6.4, 4.2))
+    ax.fill_between(x, q1, q3, color="#9e9e9e", alpha=0.35, label="IQR")
+    ax.plot(x, med, color="#121212", lw=2.0, marker="o", ms=4.0, label="Median")
+    ax.set_xlabel("epsilon")
+    ax.set_ylabel(y_label)
+    ax.set_xticks(epsilon_values)
+    ax.set_xticklabels([f"{eps:g}" for eps in epsilon_values])
+    if ylim is not None:
+        ax.set_ylim(*ylim)
+    ax.grid(alpha=0.2)
+    ax.legend(frameon=False)
     fig.tight_layout()
     fig.savefig(path, dpi=220)
     plt.close(fig)
@@ -853,7 +901,7 @@ def main() -> None:
             epsilon_values,
             rg_data,
             title="R_g Distribution vs epsilon",
-            y_label="R_g",
+            y_label=r"$R_\mathrm{g}$",
         )
         write_rg_time_vs_epsilon_plot(
             os.path.join(args.output_dir, "rg_time_median_vs_epsilon.png"),
@@ -861,48 +909,42 @@ def main() -> None:
             rg_time_by_eps,
             rg_median_by_eps,
         )
-        write_scalar_violin_vs_epsilon_plot(
+        write_median_iqr_line_vs_epsilon_plot(
             os.path.join(args.output_dir, "swap_rate_vs_epsilon.png"),
             epsilon_values,
             swap_rate_data,
-            title="Swap Rate vs epsilon",
             y_label="swap rate (1/time)",
         )
-        write_scalar_violin_vs_epsilon_plot(
+        write_median_iqr_line_vs_epsilon_plot(
             os.path.join(args.output_dir, "swap_rate_per_free_sticker_vs_epsilon.png"),
             epsilon_values,
             swap_rate_per_free_data,
-            title="Swap Rate per Free Sticker vs epsilon",
             y_label="swap rate / free sticker (1/time)",
         )
-        write_scalar_violin_vs_epsilon_plot(
+        write_median_iqr_line_vs_epsilon_plot(
             os.path.join(args.output_dir, "tau_s_vs_epsilon.png"),
             epsilon_values,
             tau_s_data,
-            title="Bond Correlation Decay Tau vs epsilon",
             y_label="bond persistence time",
         )
-        write_scalar_violin_vs_epsilon_plot(
+        write_median_iqr_line_vs_epsilon_plot(
             os.path.join(args.output_dir, "sticker_fraction_bond0_violin.png"),
             epsilon_values,
             valence0_data,
-            title="Sticker Fraction with 0 Bonds",
             y_label="fraction of stickers",
             ylim=(0.0, 1.0),
         )
-        write_scalar_violin_vs_epsilon_plot(
+        write_median_iqr_line_vs_epsilon_plot(
             os.path.join(args.output_dir, "sticker_fraction_bond1_violin.png"),
             epsilon_values,
             valence1_data,
-            title="Sticker Fraction with 1 Bond",
             y_label="fraction of stickers",
             ylim=(0.0, 1.0),
         )
-        write_scalar_violin_vs_epsilon_plot(
+        write_median_iqr_line_vs_epsilon_plot(
             os.path.join(args.output_dir, "sticker_fraction_bond_gt1_violin.png"),
             epsilon_values,
             valence_gt1_data,
-            title="Sticker Fraction with >1 Bonds",
             y_label="fraction of stickers",
             ylim=(0.0, 1.0),
         )

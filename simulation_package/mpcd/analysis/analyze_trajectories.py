@@ -147,15 +147,6 @@ def fit_exponential_with_time_window(
     return fit_exponential(time, corr)
 
 
-def find_pressure_key(frame) -> str | None:
-    if not hasattr(frame, "log"):
-        return None
-    for key in frame.log.keys():
-        if "pressure_tensor" in key:
-            return key
-    return None
-
-
 def analyze_replicate(
     gsd_path: str,
     metadata: Dict,
@@ -237,6 +228,8 @@ def analyze_replicate(
         largest_cluster_fraction_sum = 0.0
         mean_cluster_size_sum = 0.0
         cluster_frames = 0
+        largest_network_timestep_series: List[float] = []
+        largest_network_size_series: List[float] = []
 
         # Bond stats
         intra_bond_total = 0
@@ -247,10 +240,6 @@ def analyze_replicate(
         rate_assoc_sum = 0.0
         rate_dissoc_sum = 0.0
         rate_count = 0
-
-        # Pressure tensor series for G(t)
-        pressure_key = find_pressure_key(first)
-        pressure_series: List[Tuple[float, float, float]] = []
 
         # MSD sampling
         n_particles = n_polymer_particles
@@ -337,9 +326,15 @@ def analyze_replicate(
             for size in sizes:
                 cluster_hist[size] += 1
             cluster_count_total += len(sizes)
-            largest_cluster_fraction_sum += float(np.max(sizes)) / n_chains
+            largest_network_size = float(np.max(sizes))
+            largest_cluster_fraction_sum += largest_network_size / n_chains
             mean_cluster_size_sum += float(np.mean(sizes))
             cluster_frames += 1
+            frame_step = getattr(frame.configuration, "step", None)
+            if frame_step is None:
+                frame_step = int(frame_idx * frame_steps)
+            largest_network_timestep_series.append(float(frame_step))
+            largest_network_size_series.append(largest_network_size)
 
             # Intra vs inter bonds
             intra = 0
@@ -392,17 +387,6 @@ def analyze_replicate(
             prev_open = open_stickers
             prev_partners = partner_map
 
-            # Pressure tensor for G(t)
-            if pressure_key is not None and hasattr(frame, "log"):
-                pressure_val = frame.log.get(pressure_key, None)
-                if pressure_val is not None:
-                    pressure_arr = np.squeeze(pressure_val)
-                    if pressure_arr.shape[-1] >= 6:
-                        xy = float(pressure_arr[1])
-                        xz = float(pressure_arr[2])
-                        yz = float(pressure_arr[4])
-                        pressure_series.append((xy, xz, yz))
-
             # MSD sampling
             if images is None:
                 unwrapped = positions[sample_ids]
@@ -444,24 +428,6 @@ def analyze_replicate(
         cp = cp_full[1 : max_lag_frames + 1]
         cp_time = np.arange(1, len(cp) + 1, dtype=np.float64) * frame_dt
         tau_c = fit_exponential(cp_time, cp)
-
-        # Stress autocorrelation for G(t)
-        G_t = None
-        G_time = None
-        if pressure_series:
-            pressure_arr = np.array(pressure_series, dtype=np.float64)
-            g_components = []
-            for idx in range(pressure_arr.shape[1]):
-                acf = autocorr_fft(pressure_arr[:, idx], subtract_mean=True)
-                g_components.append(acf)
-            g_components = np.mean(np.vstack(g_components), axis=0)
-
-            # Convert to modulus (Green-Kubo)
-            volume = box_length**3
-            kT = metadata.get("temperature", 1.0)
-            G_full = volume / kT * g_components
-            G_t = G_full[1 : max_lag_frames + 1]
-            G_time = np.arange(1, len(G_t) + 1, dtype=np.float64) * frame_dt
 
         # MSD
         msd_time = None
@@ -508,14 +474,18 @@ def analyze_replicate(
             ),
             "cluster_hist": cluster_hist,
             "cluster_count_total": cluster_count_total,
+            "largest_network_timestep": np.array(
+                largest_network_timestep_series, dtype=np.float64
+            ),
+            "largest_network_size": np.array(
+                largest_network_size_series, dtype=np.float64
+            ),
             "cs_time": cs_time,
             "cs": cs,
             "cb_time": cb_time,
             "cb": cb,
             "cp_time": cp_time,
             "cp": cp,
-            "G_time": G_time,
-            "G_t": G_t,
             "msd_time": msd_time,
             "msd": msd,
             "frac_bond0_series": np.array(frac_bond0_series, dtype=np.float64),
@@ -1001,6 +971,45 @@ def write_tau_vs_epsilon_plot(
     )
 
 
+def write_largest_network_vs_timestep_by_epsilon_plot(
+    path: str,
+    epsilon_values: List[float],
+    timestep_data: List[np.ndarray],
+    size_mean_data: List[np.ndarray],
+) -> None:
+    series = []
+    for eps, tvals, svals in zip(epsilon_values, timestep_data, size_mean_data):
+        if tvals is None or svals is None:
+            continue
+        if len(tvals) == 0 or len(svals) == 0:
+            continue
+        series.append((float(eps), np.asarray(tvals), np.asarray(svals)))
+    if not series:
+        return
+
+    cmap = plt.get_cmap("plasma")
+    fig, ax = plt.subplots(figsize=(7.2, 4.8))
+    denom = max(len(series) - 1, 1)
+    for idx, (eps, tvals, svals) in enumerate(series):
+        color = cmap(idx / denom)
+        ax.plot(
+            tvals,
+            svals,
+            color=color,
+            lw=2.0,
+            label=f"epsilon={eps:g}",
+        )
+
+    ax.set_title("Largest Network Size vs Timestep")
+    ax.set_xlabel("Timestep")
+    ax.set_ylabel("Largest network size (chains)")
+    ax.grid(alpha=0.2)
+    ax.legend(frameon=False, ncol=2, fontsize=8)
+    fig.tight_layout()
+    fig.savefig(path, dpi=220)
+    plt.close(fig)
+
+
 def main() -> None:
     args = parse_args()
     log(f"Scanning trajectories under {args.input_root}")
@@ -1032,6 +1041,8 @@ def main() -> None:
     msd_distribution_data: List[np.ndarray] = []
     tau_s_data: List[np.ndarray] = []
     tau_b_data: List[np.ndarray] = []
+    largest_network_timestep_data: List[np.ndarray] = []
+    largest_network_size_mean_data: List[np.ndarray] = []
     scalar_violin_data: Dict[str, List[np.ndarray]] = {
         "p_open_mean": [],
         "p_mean": [],
@@ -1207,8 +1218,24 @@ def main() -> None:
         cs_time, cs_values, cs_mean, cs_stderr = aggregate_timeseries("cs_time", "cs")
         cb_time, cb_values, cb_mean, cb_stderr = aggregate_timeseries("cb_time", "cb")
         cp_time, cp_values, cp_mean, cp_stderr = aggregate_timeseries("cp_time", "cp")
-        G_time, _, G_mean, G_stderr = aggregate_timeseries("G_time", "G_t")
         msd_time, _, msd_mean, msd_stderr = aggregate_timeseries("msd_time", "msd")
+        (
+            largest_network_timestep,
+            _,
+            largest_network_size_mean,
+            largest_network_size_stderr,
+        ) = aggregate_timeseries("largest_network_timestep", "largest_network_size")
+
+        largest_network_timestep_data.append(
+            largest_network_timestep
+            if largest_network_timestep is not None
+            else np.array([], dtype=np.float64)
+        )
+        largest_network_size_mean_data.append(
+            largest_network_size_mean
+            if largest_network_size_mean is not None
+            else np.array([], dtype=np.float64)
+        )
 
         # Fraction of sticker degrees across all frames/replicates
         frac_bond0_all = np.concatenate(
@@ -1303,13 +1330,16 @@ def main() -> None:
                 title=f"Connectivity Correlation Decay (eps={epsilon:g})",
                 y_label="C_p(t)",
             )
-        if G_time is not None:
-            write_timeseries(
-                os.path.join(eps_dir, "stress_modulus.csv"), G_time, G_mean, G_stderr
-            )
         if msd_time is not None:
             write_timeseries(
                 os.path.join(eps_dir, "msd.csv"), msd_time, msd_mean, msd_stderr
+            )
+        if largest_network_timestep is not None and largest_network_size_mean is not None:
+            write_timeseries(
+                os.path.join(eps_dir, "largest_network_size.csv"),
+                largest_network_timestep,
+                largest_network_size_mean,
+                largest_network_size_stderr,
             )
         with open(os.path.join(eps_dir, "properties.json"), "w", encoding="utf-8") as handle:
             json.dump(epsilon_properties, handle, indent=2)
@@ -1450,6 +1480,14 @@ def main() -> None:
             right_label="Passive dimerization rate (R_d)",
             left_color="#e77500",
             right_color="#121212",
+        )
+        write_largest_network_vs_timestep_by_epsilon_plot(
+            os.path.join(
+                args.output_dir, "largest_network_size_vs_timestep_by_epsilon.png"
+            ),
+            epsilon_values,
+            largest_network_timestep_data,
+            largest_network_size_mean_data,
         )
 
     log("Analysis complete")

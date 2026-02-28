@@ -988,6 +988,47 @@ def write_tau_vs_epsilon_plot(
     )
 
 
+def write_stress_modulus_by_epsilon_plot(
+    path: str,
+    epsilon_values: List[float],
+    g_time_by_eps: Dict[float, np.ndarray],
+    g_values_by_eps: Dict[float, np.ndarray],
+) -> None:
+    series = []
+    for eps in epsilon_values:
+        time = g_time_by_eps.get(eps)
+        values = g_values_by_eps.get(eps)
+        if time is None or values is None:
+            continue
+        if len(time) == 0 or values.size == 0:
+            continue
+        if values.ndim != 2 or values.shape[1] != len(time):
+            continue
+        median = np.nanmedian(values, axis=0)
+        q1 = np.nanpercentile(values, 25.0, axis=0)
+        q3 = np.nanpercentile(values, 75.0, axis=0)
+        series.append((eps, time, median, q1, q3))
+
+    if not series:
+        return
+
+    colors = plt.cm.viridis(np.linspace(0.15, 0.9, len(series)))
+    fig, ax = plt.subplots(figsize=(7.2, 4.8))
+    for idx, (eps, time, median, q1, q3) in enumerate(series):
+        color = colors[idx]
+        ax.fill_between(time, q1, q3, color=color, alpha=0.18)
+        ax.plot(time, median, color=color, lw=2.0, label=f"eps={eps:g}")
+
+    ax.set_title("Stress Relaxation Modulus G(t) vs epsilon")
+    ax.set_xlabel("Time")
+    ax.set_ylabel("G(t)")
+    ax.grid(alpha=0.2)
+    ax.legend(frameon=False, ncol=2)
+    fig.tight_layout()
+    fig.savefig(path, dpi=220)
+    plt.close(fig)
+
+
 def main() -> None:
     args = parse_args()
     log(f"Scanning trajectories under {args.input_root}")
@@ -1019,6 +1060,8 @@ def main() -> None:
     msd_distribution_data: List[np.ndarray] = []
     tau_s_data: List[np.ndarray] = []
     tau_b_data: List[np.ndarray] = []
+    g_time_by_eps: Dict[float, np.ndarray] = {}
+    g_values_by_eps: Dict[float, np.ndarray] = {}
     scalar_violin_data: Dict[str, List[np.ndarray]] = {
         "p_open_mean": [],
         "p_mean": [],
@@ -1194,8 +1237,11 @@ def main() -> None:
         cs_time, cs_values, cs_mean, cs_stderr = aggregate_timeseries("cs_time", "cs")
         cb_time, cb_values, cb_mean, cb_stderr = aggregate_timeseries("cb_time", "cb")
         cp_time, cp_values, cp_mean, cp_stderr = aggregate_timeseries("cp_time", "cp")
-        G_time, _, G_mean, G_stderr = aggregate_timeseries("G_time", "G_t")
+        G_time, G_values, G_mean, G_stderr = aggregate_timeseries("G_time", "G_t")
         msd_time, _, msd_mean, msd_stderr = aggregate_timeseries("msd_time", "msd")
+        if G_time is not None and G_values is not None:
+            g_time_by_eps[epsilon] = G_time
+            g_values_by_eps[epsilon] = G_values
 
         # Fraction of sticker degrees across all frames/replicates
         frac_bond0_all = np.concatenate(
@@ -1437,6 +1483,12 @@ def main() -> None:
             right_label="Passive dimerization rate (R_d)",
             left_color="#e77500",
             right_color="#121212",
+        )
+        write_stress_modulus_by_epsilon_plot(
+            os.path.join(args.output_dir, "stress_modulus_vs_epsilon_median_iqr.png"),
+            epsilon_values,
+            g_time_by_eps,
+            g_values_by_eps,
         )
 
     log("Analysis complete")

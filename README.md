@@ -13,4 +13,5 @@ The workflows in this project are designed to:
 
 - `simulation_package/melt/`: melt data generation, analysis, energy checks, and Tersoff comparison workflows.
 - `simulation_package/single_chain/`: single-chain data generation and analysis workflows.
+- `simulation_package/mpcd/`: MPCD-solvated polymer solution data generation and analysis workflows.
 - `hoomd-blue/`: HOOMD-blue source tree, maintained as its own nested Git repository.

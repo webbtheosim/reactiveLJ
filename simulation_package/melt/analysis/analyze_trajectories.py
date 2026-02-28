@@ -757,6 +757,8 @@ def write_fraction_violin_plot(
         body.set_edgecolor("#6f6f6f")
         body.set_alpha(0.5)
 
+    median_positions: List[float] = []
+    median_values: List[float] = []
     for eps, values in zip(epsilon_values, data):
         if values.size == 0:
             continue
@@ -765,6 +767,18 @@ def write_fraction_violin_plot(
         med = float(np.median(values))
         ax.vlines(eps, q1, q3, color="#2b2b2b", lw=2.0)
         ax.scatter([eps], [med], color="#2b2b2b", s=18, zorder=3)
+        median_positions.append(float(eps))
+        median_values.append(med)
+
+    if median_positions:
+        ax.plot(
+            median_positions,
+            median_values,
+            color="#2b2b2b",
+            lw=1.8,
+            alpha=0.9,
+            zorder=2,
+        )
 
     ax.set_title(title)
     ax.set_xlabel("epsilon")
@@ -839,12 +853,24 @@ def write_scalar_violin_vs_epsilon_plot(
         body.set_edgecolor("#6f6f6f")
         body.set_alpha(0.5)
 
+    medians: List[float] = []
     for eps, values in zip(positions, violin_data):
         q1 = float(np.percentile(values, 25.0))
         q3 = float(np.percentile(values, 75.0))
         med = float(np.median(values))
         ax.vlines(eps, q1, q3, color="#2b2b2b", lw=2.0)
         ax.scatter([eps], [med], color="#2b2b2b", s=18, zorder=3)
+        medians.append(med)
+
+    if positions:
+        ax.plot(
+            positions,
+            medians,
+            color="#2b2b2b",
+            lw=1.8,
+            alpha=0.9,
+            zorder=2,
+        )
 
     ax.set_title(title)
     ax.set_xlabel("epsilon")
@@ -869,6 +895,7 @@ def write_dual_scalar_violin_vs_epsilon_plot(
     left_color: str,
     right_color: str,
 ) -> None:
+    del left_label, right_label
     left_positions: List[float] = []
     left_violin_data: List[np.ndarray] = []
     left_medians: List[float] = []
@@ -937,16 +964,6 @@ def write_dual_scalar_violin_vs_epsilon_plot(
             zorder=2,
         )
 
-    legend_handles = [
-        matplotlib.patches.Patch(
-            facecolor=left_color, edgecolor=left_color, alpha=0.35, label=left_label
-        ),
-        matplotlib.patches.Patch(
-            facecolor=right_color, edgecolor=right_color, alpha=0.35, label=right_label
-        ),
-    ]
-    ax.legend(handles=legend_handles, frameon=False)
-
     ax.set_title(title)
     ax.set_xlabel("epsilon")
     ax.set_ylabel(y_label)
@@ -996,31 +1013,31 @@ def write_stress_modulus_by_epsilon_plot(
 ) -> None:
     series = []
     for eps in epsilon_values:
-        time = g_time_by_eps.get(eps)
+        lag_time = g_time_by_eps.get(eps)
         values = g_values_by_eps.get(eps)
-        if time is None or values is None:
+        if lag_time is None or values is None:
             continue
-        if len(time) == 0 or values.size == 0:
+        if len(lag_time) == 0 or values.size == 0:
             continue
-        if values.ndim != 2 or values.shape[1] != len(time):
+        if values.ndim != 2 or values.shape[1] != len(lag_time):
             continue
         median = np.nanmedian(values, axis=0)
         q1 = np.nanpercentile(values, 25.0, axis=0)
         q3 = np.nanpercentile(values, 75.0, axis=0)
-        series.append((eps, time, median, q1, q3))
+        series.append((eps, lag_time, median, q1, q3))
 
     if not series:
         return
 
-    colors = plt.cm.viridis(np.linspace(0.15, 0.9, len(series)))
+    cmap = plt.get_cmap("plasma", len(series))
     fig, ax = plt.subplots(figsize=(7.2, 4.8))
-    for idx, (eps, time, median, q1, q3) in enumerate(series):
-        color = colors[idx]
-        ax.fill_between(time, q1, q3, color=color, alpha=0.18)
-        ax.plot(time, median, color=color, lw=2.0, label=f"eps={eps:g}")
+    for idx, (eps, lag_time, median, q1, q3) in enumerate(series):
+        color = cmap(idx)
+        ax.fill_between(lag_time, q1, q3, color=color, alpha=0.18)
+        ax.plot(lag_time, median, color=color, lw=2.0, label=f"eps={eps:g}")
 
     ax.set_title("Stress Relaxation Modulus G(t) vs epsilon")
-    ax.set_xlabel("Time")
+    ax.set_xlabel("Time lag")
     ax.set_ylabel("G(t)")
     ax.grid(alpha=0.2)
     ax.legend(frameon=False, ncol=2)

@@ -434,6 +434,7 @@ def analyze_replicate(
 
         # Stress autocorrelation for G(t)
         G_t = None
+        G_autocorr_t = None
         G_time = None
         if pressure_series:
             pressure_arr = np.array(pressure_series, dtype=np.float64)
@@ -442,6 +443,7 @@ def analyze_replicate(
                 acf = autocorr_fft(pressure_arr[:, idx], subtract_mean=True)
                 g_components.append(acf)
             g_components = np.mean(np.vstack(g_components), axis=0)
+            G_autocorr_t = g_components[1 : max_lag_frames + 1]
 
             # Convert to modulus (Green-Kubo)
             volume = box_length**3
@@ -503,6 +505,7 @@ def analyze_replicate(
             "cp": cp,
             "G_time": G_time,
             "G_t": G_t,
+            "G_autocorr_t": G_autocorr_t,
             "msd_time": msd_time,
             "msd": msd,
             "frac_bond0_series": np.array(frac_bond0_series, dtype=np.float64),
@@ -1036,9 +1039,9 @@ def write_stress_modulus_by_epsilon_plot(
         ax.fill_between(lag_time, q1, q3, color=color, alpha=0.18)
         ax.plot(lag_time, median, color=color, lw=2.0, label=f"eps={eps:g}")
 
-    ax.set_title("Stress Relaxation Modulus G(t) vs epsilon")
+    ax.set_title("Stress Modulus Autocorrelation vs Time Lag")
     ax.set_xlabel("Time lag")
-    ax.set_ylabel("G(t)")
+    ax.set_ylabel("Stress modulus autocorrelation")
     ax.grid(alpha=0.2)
     ax.legend(frameon=False, ncol=2)
     fig.tight_layout()
@@ -1254,11 +1257,14 @@ def main() -> None:
         cs_time, cs_values, cs_mean, cs_stderr = aggregate_timeseries("cs_time", "cs")
         cb_time, cb_values, cb_mean, cb_stderr = aggregate_timeseries("cb_time", "cb")
         cp_time, cp_values, cp_mean, cp_stderr = aggregate_timeseries("cp_time", "cp")
-        G_time, G_values, G_mean, G_stderr = aggregate_timeseries("G_time", "G_t")
+        G_time, _, G_mean, G_stderr = aggregate_timeseries("G_time", "G_t")
+        G_corr_time, G_corr_values, _, _ = aggregate_timeseries(
+            "G_time", "G_autocorr_t"
+        )
         msd_time, _, msd_mean, msd_stderr = aggregate_timeseries("msd_time", "msd")
-        if G_time is not None and G_values is not None:
-            g_time_by_eps[epsilon] = G_time
-            g_values_by_eps[epsilon] = G_values
+        if G_corr_time is not None and G_corr_values is not None:
+            g_time_by_eps[epsilon] = G_corr_time
+            g_values_by_eps[epsilon] = G_corr_values
 
         # Fraction of sticker degrees across all frames/replicates
         frac_bond0_all = np.concatenate(

@@ -100,7 +100,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def discover_runs(input_root: str) -> List[Tuple[str, str]]:
-    excluded_dirs = {"TEST", "TEST_CPU_REACTIVELJ"}
+    excluded_dirs = {"TEST", "TEST_CPU_REACTIVELJ", "archived"}
     runs = []
     for root, dirs, files in os.walk(input_root, topdown=True):
         # Keep test trajectories out of production analysis sweeps.
@@ -154,6 +154,53 @@ def find_pressure_key(frame) -> str | None:
         if "pressure_tensor" in key:
             return key
     return None
+
+
+def parse_pressure_components(pressure_val) -> Tuple[float, float, float] | None:
+    pressure_arr = np.asarray(np.squeeze(pressure_val), dtype=np.float64)
+    if pressure_arr.ndim == 0 or pressure_arr.shape[-1] < 6:
+        return None
+    return float(pressure_arr[1]), float(pressure_arr[2]), float(pressure_arr[4])
+
+
+def load_pressure_series_from_gsd(
+    pressure_gsd_path: str,
+) -> Tuple[np.ndarray, np.ndarray]:
+    pressure_samples: List[Tuple[float, float, float]] = []
+    pressure_steps: List[int] = []
+    with gsd.hoomd.open(pressure_gsd_path, "r") as pressure_traj:
+        if len(pressure_traj) == 0:
+            return np.empty((0, 3), dtype=np.float64), np.empty((0,), dtype=np.int64)
+        pressure_key = find_pressure_key(pressure_traj[0])
+        if pressure_key is None:
+            return np.empty((0, 3), dtype=np.float64), np.empty((0,), dtype=np.int64)
+        for frame in pressure_traj:
+            if not hasattr(frame, "log"):
+                continue
+            pressure_val = frame.log.get(pressure_key, None)
+            if pressure_val is None:
+                continue
+            parsed = parse_pressure_components(pressure_val)
+            if parsed is None:
+                continue
+            pressure_samples.append(parsed)
+            pressure_steps.append(int(frame.configuration.step))
+    if not pressure_samples:
+        return np.empty((0, 3), dtype=np.float64), np.empty((0,), dtype=np.int64)
+    return np.asarray(pressure_samples, dtype=np.float64), np.asarray(
+        pressure_steps, dtype=np.int64
+    )
+
+
+def infer_sample_dt(
+    sample_steps: np.ndarray, dt: float, fallback_step_stride: float
+) -> float:
+    if sample_steps.size >= 2:
+        diffs = np.diff(sample_steps)
+        positive_diffs = diffs[diffs > 0]
+        if positive_diffs.size > 0:
+            return dt * float(np.median(positive_diffs))
+    return dt * float(fallback_step_stride)
 
 
 def analyze_replicate(
@@ -239,7 +286,8 @@ def analyze_replicate(
 
         # Pressure tensor series for G(t)
         pressure_key = find_pressure_key(first)
-        pressure_series: List[Tuple[float, float, float]] = []
+        trajectory_pressure_series: List[Tuple[float, float, float]] = []
+        trajectory_pressure_steps: List[int] = []
 
         # MSD sampling
         n_particles = first.particles.N
@@ -383,12 +431,10 @@ def analyze_replicate(
             if pressure_key is not None and hasattr(frame, "log"):
                 pressure_val = frame.log.get(pressure_key, None)
                 if pressure_val is not None:
-                    pressure_arr = np.squeeze(pressure_val)
-                    if pressure_arr.shape[-1] >= 6:
-                        xy = float(pressure_arr[1])
-                        xz = float(pressure_arr[2])
-                        yz = float(pressure_arr[4])
-                        pressure_series.append((xy, xz, yz))
+                    parsed = parse_pressure_components(pressure_val)
+                    if parsed is not None:
+                        trajectory_pressure_series.append(parsed)
+                        trajectory_pressure_steps.append(int(frame.configuration.step))
 
             # MSD sampling
             if images is None:
@@ -436,21 +482,49 @@ def analyze_replicate(
         G_t = None
         G_autocorr_t = None
         G_time = None
-        if pressure_series:
-            pressure_arr = np.array(pressure_series, dtype=np.float64)
+        pressure_source = None
+
+        pressure_arr = np.empty((0, 3), dtype=np.float64)
+        pressure_steps = np.empty((0,), dtype=np.int64)
+        pressure_log_path = os.path.join(
+            os.path.dirname(gsd_path), "pressure_tensor_log.gsd"
+        )
+        if os.path.exists(pressure_log_path):
+            pressure_arr, pressure_steps = load_pressure_series_from_gsd(pressure_log_path)
+            if pressure_arr.size > 0:
+                pressure_source = "pressure_tensor_log.gsd"
+
+        if pressure_arr.size == 0 and trajectory_pressure_series:
+            pressure_arr = np.asarray(trajectory_pressure_series, dtype=np.float64)
+            pressure_steps = np.asarray(trajectory_pressure_steps, dtype=np.int64)
+            pressure_source = "trajectory.gsd"
+
+        if pressure_arr.shape[0] > 1:
             g_components = []
             for idx in range(pressure_arr.shape[1]):
                 acf = autocorr_fft(pressure_arr[:, idx], subtract_mean=True)
                 g_components.append(acf)
             g_components = np.mean(np.vstack(g_components), axis=0)
-            G_autocorr_t = g_components[1 : max_lag_frames + 1]
+            max_lag = min(max_lag_frames, g_components.shape[0] - 1)
+            G_autocorr_t = g_components[1 : max_lag + 1]
 
             # Convert to modulus (Green-Kubo)
             volume = box_length**3
             kT = metadata.get("temperature", 1.0)
             G_full = volume / kT * g_components
-            G_t = G_full[1 : max_lag_frames + 1]
-            G_time = np.arange(1, len(G_t) + 1, dtype=np.float64) * frame_dt
+            G_t = G_full[1 : max_lag + 1]
+
+            dt_default_stride = (
+                metadata.get("pressure_log_steps", frame_steps)
+                if pressure_source == "pressure_tensor_log.gsd"
+                else frame_steps * analysis_stride
+            )
+            pressure_dt = infer_sample_dt(
+                pressure_steps,
+                float(metadata.get("dt", 0.005)),
+                float(dt_default_stride),
+            )
+            G_time = np.arange(1, len(G_t) + 1, dtype=np.float64) * pressure_dt
 
         # MSD
         msd_time = None
@@ -506,6 +580,7 @@ def analyze_replicate(
             "G_time": G_time,
             "G_t": G_t,
             "G_autocorr_t": G_autocorr_t,
+            "pressure_source": pressure_source,
             "msd_time": msd_time,
             "msd": msd,
             "frac_bond0_series": np.array(frac_bond0_series, dtype=np.float64),

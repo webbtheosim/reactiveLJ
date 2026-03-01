@@ -19,6 +19,7 @@ EPSILONS_DEFAULT = (3.0, 6.0, 9.0, 12.0, 15.0, 18.0)
 REACTIVE_R_CUT_MULT = 1.5
 REACTIVE_WEAKENING_DISTANCE_MULT = 0.2
 REACTIVE_WEAKENING_INNER_MULT = REACTIVE_R_CUT_MULT - REACTIVE_WEAKENING_DISTANCE_MULT
+THIRD_BEAD_DISTANCES_SIGMA = (1.3, 1.4, 1.5)
 
 
 @dataclass(frozen=True)
@@ -300,7 +301,7 @@ def make_colored_curve_plot(
     y_min: float,
     y_max: float,
 ) -> None:
-    fig, ax = plt.subplots(figsize=(4.0, 3.0), dpi=300)
+    fig, ax = plt.subplots(figsize=(3.3, 2.0), dpi=600)
     plot_mask = (r >= 0.9) & (r <= 1.5)
     if not np.any(plot_mask):
         raise ValueError("No points remain after filtering plot range to 0.9 <= r <= 1.5.")
@@ -320,15 +321,16 @@ def make_colored_curve_plot(
 
     ax.set_ylim(bottom=float(y_min), top=float(y_max))
 
-    ax.set_xlabel("r")
-    ax.set_ylabel("U(r)")
-    ax.set_title(f"ReactiveLJ curves (eps={epsilon:g})")
+    ax.set_xlabel(r"$r_{AB}/\sigma$", fontsize=10)
+    ax.set_ylabel(r"$U(r_{AB})$", fontsize=10)
+    ax.tick_params(axis="both", labelsize=8)
     ax.grid(alpha=0.25, linewidth=0.5)
 
     sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
     sm.set_array([])
     cbar = fig.colorbar(sm, ax=ax)
-    cbar.set_label("Third-bead distance (r3 / sigma)")
+    cbar.set_ticks(scaled_distances)
+    cbar.set_label(r"$r_{AC}/\sigma$")
 
     fig.tight_layout()
     fig.savefig(path)
@@ -379,11 +381,8 @@ def main() -> None:
     )
 
     r_grid = np.linspace(cfg.r_min, cfg.reactive_r_cut, cfg.n_points)
-    third_distances = np.linspace(
-        float(args.third_bead_min_sigma) * cfg.sigma,
-        float(args.third_bead_max_sigma) * cfg.sigma,
-        int(args.n_third_bead_distances),
-    )
+    # Use a compact, fixed third-bead set for clearer overlays.
+    third_distances = np.asarray(THIRD_BEAD_DISTANCES_SIGMA, dtype=np.float64) * cfg.sigma
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
     plot_dir = os.path.abspath(os.path.join(script_dir, args.plot_dir))

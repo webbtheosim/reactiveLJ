@@ -198,12 +198,24 @@ def write_scalar_violin_vs_epsilon_plot(
         body.set_edgecolor("#6f6f6f")
         body.set_alpha(0.5)
 
+    medians: List[float] = []
     for eps, values in zip(positions, violin_data):
         q1 = float(np.percentile(values, 25.0))
         q3 = float(np.percentile(values, 75.0))
         med = float(np.median(values))
         ax.vlines(eps, q1, q3, color="#2b2b2b", lw=2.0)
         ax.scatter([eps], [med], color="#2b2b2b", s=18, zorder=3)
+        medians.append(med)
+
+    if positions:
+        ax.plot(
+            positions,
+            medians,
+            color="#2b2b2b",
+            lw=1.8,
+            alpha=0.9,
+            zorder=2,
+        )
 
     ax.set_xlabel("epsilon")
     ax.set_ylabel(y_label)
@@ -229,7 +241,7 @@ def write_dual_scalar_violin_vs_epsilon_plot(
     left_color: str,
     right_color: str,
 ) -> None:
-    del title  # Plot titles intentionally omitted for publication styling.
+    del title, left_label, right_label  # Plot titles intentionally omitted for publication styling.
     left_positions: List[float] = []
     left_violin_data: List[np.ndarray] = []
     left_medians: List[float] = []
@@ -297,16 +309,6 @@ def write_dual_scalar_violin_vs_epsilon_plot(
             alpha=0.9,
             zorder=2,
         )
-
-    legend_handles = [
-        matplotlib.patches.Patch(
-            facecolor=left_color, edgecolor=left_color, alpha=0.35, label=left_label
-        ),
-        matplotlib.patches.Patch(
-            facecolor=right_color, edgecolor=right_color, alpha=0.35, label=right_label
-        ),
-    ]
-    ax.legend(handles=legend_handles, frameon=False)
 
     ax.set_xlabel("epsilon")
     ax.set_ylabel(y_label)

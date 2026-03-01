@@ -3,7 +3,8 @@
 This script builds a KG melt (random-walk with rejection sampling), performs an
 unsticky melt equilibration, assigns sticker identities, turns on the ReactiveLJ
 interaction, equilibrates
-again, and finally runs production while writing trajectory frames to GSD.
+again, and finally runs production while writing trajectory frames to GSD plus
+a separate high-frequency pressure-tensor log.
 
 All key parameters are configurable via CLI flags. Keep this file as the
 single source of truth for the Block 1 protocol, and adjust values as needed.
@@ -80,6 +81,7 @@ class SimulationConfig:
     reactive_equil_steps: int = 1_000_000
     production_steps: int = 1_000_000
     frame_steps: int = 10_000
+    pressure_log_steps: int = 200
 
     # Angle table
     angle_table_width: int = 1000
@@ -142,6 +144,12 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=None,
         help="GSD frame spacing in steps (default 10_000).",
+    )
+    parser.add_argument(
+        "--pressure-log-steps",
+        type=int,
+        default=None,
+        help="Pressure-tensor log spacing in steps (default 200).",
     )
     parser.add_argument(
         "--unsticky-equil-steps",
@@ -756,6 +764,8 @@ def main() -> None:
 
     if args.frame_steps is not None:
         cfg.frame_steps = args.frame_steps
+    if args.pressure_log_steps is not None:
+        cfg.pressure_log_steps = args.pressure_log_steps
     if args.init_min_dist is not None:
         cfg.init_min_dist = args.init_min_dist
     if args.init_bond_length is not None:
@@ -929,9 +939,12 @@ def main() -> None:
     thermo = hoomd.md.compute.ThermodynamicQuantities(filter=hoomd.filter.All())
     sim.operations.computes.append(thermo)
 
-    logger = hoomd.logging.Logger()
-    logger.add(thermo, quantities=["pressure_tensor"])
-    logger.add(sim, quantities=["timestep"])
+    trajectory_logger = hoomd.logging.Logger()
+    trajectory_logger.add(sim, quantities=["timestep"])
+
+    pressure_logger = hoomd.logging.Logger()
+    pressure_logger.add(thermo, quantities=["pressure_tensor"])
+    pressure_logger.add(sim, quantities=["timestep"])
 
     gsd_path = os.path.join(output_dir, "trajectory.gsd")
     gsd_writer = hoomd.write.GSD(
@@ -941,9 +954,21 @@ def main() -> None:
         filter=hoomd.filter.All(),
         # Keep trajectories compact: write only positions, images, and type ids.
         dynamic=["particles/position", "particles/image", "particles/typeid"],
-        logger=logger,
+        logger=trajectory_logger,
     )
     sim.operations.writers.append(gsd_writer)
+
+    pressure_gsd_path = os.path.join(output_dir, "pressure_tensor_log.gsd")
+    pressure_writer = hoomd.write.GSD(
+        filename=pressure_gsd_path,
+        trigger=hoomd.trigger.Periodic(cfg.pressure_log_steps),
+        mode="wb",
+        # Keep this log compact by excluding per-particle trajectory data.
+        filter=hoomd.filter.Null(),
+        dynamic=[],
+        logger=pressure_logger,
+    )
+    sim.operations.writers.append(pressure_writer)
 
     production_start = time.perf_counter()
     sim.run(cfg.production_steps)

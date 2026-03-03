@@ -162,8 +162,16 @@ class UnionFind:
         return counts
 
 
-def autocorr_fft(series: np.ndarray, subtract_mean: bool = True) -> np.ndarray:
-    """Compute autocorrelation using FFT (normalized to C(0)=1)."""
+def autocorr_fft(
+    series: np.ndarray,
+    subtract_mean: bool = True,
+    normalize: bool = True,
+) -> np.ndarray:
+    """Compute autocorrelation using FFT.
+
+    When normalize is True, output is normalized to C(0)=1.
+    When normalize is False, output is the unbiased autocovariance.
+    """
     x = np.asarray(series, dtype=np.float64)
     if subtract_mean:
         x = x - np.mean(x)
@@ -181,9 +189,141 @@ def autocorr_fft(series: np.ndarray, subtract_mean: bool = True) -> np.ndarray:
     norm = np.arange(n, 0, -1, dtype=np.float64)
     acf = acf / norm
 
-    if acf[0] != 0:
+    if normalize and acf[0] != 0:
         acf = acf / acf[0]
     return acf
+
+
+def multitau_autocovariance(
+    series: np.ndarray, p: int = 16, m: int = 2, S: int = 40
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Compute multi-tau autocovariance in batch on a logarithmic lag grid.
+
+    The returned lag grid matches ``MultiTauCorrelator.result()`` for the same
+    ``p``, ``m``, and ``S`` while avoiding per-sample Python updates.
+    """
+    if p % m != 0:
+        raise ValueError("p must be divisible by m")
+
+    x = np.asarray(series, dtype=np.float64)
+    if x.ndim != 1:
+        raise ValueError("series must be 1D")
+    if x.size == 0:
+        return np.array([], dtype=np.float64), np.array([], dtype=np.float64)
+
+    p_m = p // m
+    lags: List[float] = []
+    cov: List[float] = []
+
+    level_data = x.copy()
+    lag_scale = 1
+
+    for level in range(S):
+        n_level = level_data.size
+        if n_level == 0:
+            break
+
+        j_start = 0 if level == 0 else p_m
+        j_stop = min(p, n_level)
+        for j in range(j_start, j_stop):
+            span = n_level - j
+            cov_ij = float(np.dot(level_data[:span], level_data[j:]) / span)
+            lags.append(float(j * lag_scale))
+            cov.append(cov_ij)
+
+        if level == S - 1:
+            break
+
+        n_next = n_level // m
+        if n_next == 0:
+            break
+        trimmed = level_data[: n_next * m]
+        level_data = np.mean(trimmed.reshape(n_next, m), axis=1)
+        lag_scale *= m
+
+    return np.asarray(lags, dtype=np.float64), np.asarray(cov, dtype=np.float64)
+
+
+class MultiTauCorrelator:
+    """Multi-tau correlator for stress autocorrelation (Ramirez et al. 2010).
+
+    Logarithmic time binning gives good statistics at all lag times.
+    Streaming interface: feed samples one at a time via ``add()``.
+    """
+
+    def __init__(self, p: int = 16, m: int = 2, S: int = 40) -> None:
+        if p % m != 0:
+            raise ValueError("p must be divisible by m")
+        self.p = p
+        self.m = m
+        self.S = S
+        self.p_m = p // m
+        self._sentinel = -1.0e30
+
+        self.D = np.full((S, p), self._sentinel, dtype=np.float64)
+        self.C = np.zeros((S, p), dtype=np.float64)
+        self.N = np.zeros((S, p), dtype=np.int64)
+        self.A = np.zeros(S, dtype=np.float64)
+        self.M = np.zeros(S, dtype=np.int64)
+        self.n_samples = 0
+
+    def add(self, value: float) -> None:
+        self.n_samples += 1
+        self._add_level(value, 0)
+
+    def _add_level(self, w: float, k: int) -> None:
+        if k >= self.S:
+            return
+        p = self.p
+        D = self.D
+        C = self.C
+        N = self.N
+
+        # Shift register
+        D[k, 1:] = D[k, :-1]
+        D[k, 0] = w
+
+        # Accumulate correlation products
+        if k == 0:
+            for j in range(p):
+                if D[k, j] > self._sentinel:
+                    C[k, j] += D[k, 0] * D[k, j]
+                    N[k, j] += 1
+        else:
+            for j in range(self.p_m, p):
+                if D[k, j] > self._sentinel:
+                    C[k, j] += D[k, 0] * D[k, j]
+                    N[k, j] += 1
+
+        # Block average and propagate to next level
+        self.A[k] += w
+        self.M[k] += 1
+        if self.M[k] == self.m:
+            self._add_level(self.A[k] / self.m, k + 1)
+            self.A[k] = 0.0
+            self.M[k] = 0
+
+    def result(self) -> Tuple[np.ndarray, np.ndarray]:
+        """Return (lag_indices, autocovariance) on a logarithmic grid.
+
+        lag_indices are in units of the sampling interval.
+        autocovariance is unnormalized: <x(0) x(t)>.
+        """
+        lags: List[int] = []
+        corr: List[float] = []
+
+        for j in range(self.p):
+            if self.N[0, j] > 0:
+                lags.append(j)
+                corr.append(self.C[0, j] / self.N[0, j])
+
+        for s in range(1, self.S):
+            for j in range(self.p_m, self.p):
+                if self.N[s, j] > 0:
+                    lags.append(j * self.m**s)
+                    corr.append(self.C[s, j] / self.N[s, j])
+
+        return np.asarray(lags, dtype=np.float64), np.asarray(corr, dtype=np.float64)
 
 
 def _exp_decay(time: np.ndarray, tau: float) -> np.ndarray:

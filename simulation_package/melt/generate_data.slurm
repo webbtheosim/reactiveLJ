@@ -4,7 +4,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --time=01:02:00
 #SBATCH --cpus-per-task=1
-#SBATCH --mem=1G
+#SBATCH --mem=8G
 #SBATCH --array=0-59%24
 #SBATCH --output=logs/generate_data_%A_%a.out
 
@@ -37,7 +37,8 @@ TOTAL=$(( ${#EPSILONS[@]} * N_REP ))
 FRAME_STEPS=${FRAME_STEPS:-10000}
 UNSTICKY_EQ_STEPS=${UNSTICKY_EQ_STEPS:-100000}
 REACTIVE_EQ_STEPS=${REACTIVE_EQ_STEPS:-1000000}
-PROD_STEPS=${PROD_STEPS:-1000000}
+PROD_STEPS=${PROD_STEPS:-10000000}
+PRESSURE_LOG_STEPS=${PRESSURE_LOG_STEPS:-100}
 WEAKENING_EXPONENT=${WEAKENING_EXPONENT:-4}
 
 TASK_ID=${SLURM_ARRAY_TASK_ID}
@@ -57,6 +58,7 @@ python "${WORK_DIR}/data_generation/run_reactive_lj.py" \
     --output-root "${WORK_DIR}/data_generation/outputs" \
     --weakening-exponent "${WEAKENING_EXPONENT}" \
     --frame-steps "${FRAME_STEPS}" \
+    --pressure-log-steps "${PRESSURE_LOG_STEPS}" \
     --unsticky-equil-steps "${UNSTICKY_EQ_STEPS}" \
     --reactive-equil-steps "${REACTIVE_EQ_STEPS}" \
     --production-steps "${PROD_STEPS}"

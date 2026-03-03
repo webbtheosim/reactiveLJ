@@ -81,7 +81,7 @@ class SimulationConfig:
     reactive_equil_steps: int = 1_000_000
     production_steps: int = 1_000_000
     frame_steps: int = 10_000
-    pressure_log_steps: int = 200
+    pressure_log_steps: int = 1
 
     # Angle table
     angle_table_width: int = 1000
@@ -149,7 +149,7 @@ def parse_args() -> argparse.Namespace:
         "--pressure-log-steps",
         type=int,
         default=None,
-        help="Pressure-tensor log spacing in steps (default 200).",
+        help="Pressure-tensor log spacing in steps (default 1).",
     )
     parser.add_argument(
         "--unsticky-equil-steps",

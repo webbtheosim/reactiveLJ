@@ -35,6 +35,7 @@ from analysis_utils import (
     find_sticker_bonds,
     fit_exponential,
     fit_plateau_exponential,
+    multitau_autocovariance,
 )
 
 
@@ -81,7 +82,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--max-lag-frames",
         type=int,
-        default=25,
+        default=100,
         help="Maximum lag (in frames) used for correlation functions.",
     )
     parser.add_argument(
@@ -500,19 +501,37 @@ def analyze_replicate(
             pressure_source = "trajectory.gsd"
 
         if pressure_arr.shape[0] > 1:
-            g_components = []
-            for idx in range(pressure_arr.shape[1]):
-                acf = autocorr_fft(pressure_arr[:, idx], subtract_mean=True)
-                g_components.append(acf)
-            g_components = np.mean(np.vstack(g_components), axis=0)
-            max_lag = min(max_lag_frames, g_components.shape[0] - 1)
-            G_autocorr_t = g_components[1 : max_lag + 1]
+            # Multi-tau correlator: logarithmic time binning for G(t)
+            n_components = pressure_arr.shape[1]
+            means = np.mean(pressure_arr, axis=0)
+            centered_pressure = pressure_arr - means
 
-            # Convert to modulus (Green-Kubo)
+            # Average autocovariance over the 3 off-diagonal components
+            lag_arrays = []
+            cov_arrays = []
+            for comp in range(n_components):
+                lags_i, cov_i = multitau_autocovariance(centered_pressure[:, comp])
+                lag_arrays.append(lags_i)
+                cov_arrays.append(cov_i)
+
+            # All correlators fed the same number of samples -> identical lag grids
+            g_lags = lag_arrays[0]
+            g_cov = np.mean(np.vstack(cov_arrays), axis=0)
+
+            # Normalized autocorrelation for diagnostics
+            cov0 = g_cov[0] if g_cov[0] != 0.0 else np.nan
+            G_autocorr_t = g_cov / cov0
+
+            # Skip lag=0 (instantaneous modulus) for the output arrays
+            skip = 1 if len(g_lags) > 1 and g_lags[0] == 0 else 0
+            g_lags = g_lags[skip:]
+            g_cov = g_cov[skip:]
+            G_autocorr_t = G_autocorr_t[skip:]
+
+            # Convert to modulus (Green-Kubo): G(t) = (V / kT) * <sigma(0) sigma(t)>
             volume = box_length**3
             kT = metadata.get("temperature", 1.0)
-            G_full = volume / kT * g_components
-            G_t = G_full[1 : max_lag + 1]
+            G_t = (volume / kT) * g_cov
 
             dt_default_stride = (
                 metadata.get("pressure_log_steps", frame_steps)
@@ -524,7 +543,7 @@ def analyze_replicate(
                 float(metadata.get("dt", 0.005)),
                 float(dt_default_stride),
             )
-            G_time = np.arange(1, len(G_t) + 1, dtype=np.float64) * pressure_dt
+            G_time = g_lags * pressure_dt
 
         # MSD
         msd_time = None
@@ -1111,13 +1130,23 @@ def write_stress_modulus_by_epsilon_plot(
     fig, ax = plt.subplots(figsize=(7.2, 4.8))
     for idx, (eps, lag_time, median, q1, q3) in enumerate(series):
         color = cmap(idx)
-        ax.fill_between(lag_time, q1, q3, color=color, alpha=0.18)
-        ax.plot(lag_time, median, color=color, lw=2.0, label=f"eps={eps:g}")
+        # Only plot positive values on log-log axes
+        pos = median > 0
+        if not np.any(pos):
+            continue
+        t_pos = lag_time[pos]
+        med_pos = median[pos]
+        q1_pos = np.clip(q1[pos], 1e-30, None)
+        q3_pos = q3[pos]
+        ax.fill_between(t_pos, q1_pos, q3_pos, color=color, alpha=0.18)
+        ax.plot(t_pos, med_pos, color=color, lw=2.0, label=f"eps={eps:g}")
 
-    ax.set_title("Stress Modulus Autocorrelation vs Time Lag")
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.set_title("Network Relaxation Modulus vs Time Lag")
     ax.set_xlabel("Time lag")
-    ax.set_ylabel("Stress modulus autocorrelation")
-    ax.grid(alpha=0.2)
+    ax.set_ylabel("G(t)")
+    ax.grid(alpha=0.2, which="both")
     ax.legend(frameon=False, ncol=2)
     fig.tight_layout()
     fig.savefig(path, dpi=220)
@@ -1306,19 +1335,9 @@ def main() -> None:
             ]
             if not series:
                 return None, None, None, None
-            lengths = [len(t) for t, _ in series]
-            if len(set(lengths)) != 1:
-                raise RuntimeError(
-                    f"Replicate series length mismatch for eps={epsilon:g}, "
-                    f"series={key_val}: lengths={lengths}"
-                )
-            val_lengths = [len(v) for _, v in series]
-            if len(set(val_lengths)) != 1:
-                raise RuntimeError(
-                    f"Replicate value length mismatch for eps={epsilon:g}, "
-                    f"series={key_val}: lengths={val_lengths}"
-                )
-            n = lengths[0]
+            # Truncate to shortest common length (handles multi-tau lag grids
+            # that may differ slightly if production lengths vary).
+            n = min(min(len(t) for t, _ in series), min(len(v) for _, v in series))
             time = series[0][0][:n]
             values = np.stack([v[:n] for _, v in series], axis=0)
             mean = np.mean(values, axis=0)
@@ -1332,14 +1351,11 @@ def main() -> None:
         cs_time, cs_values, cs_mean, cs_stderr = aggregate_timeseries("cs_time", "cs")
         cb_time, cb_values, cb_mean, cb_stderr = aggregate_timeseries("cb_time", "cb")
         cp_time, cp_values, cp_mean, cp_stderr = aggregate_timeseries("cp_time", "cp")
-        G_time, _, G_mean, G_stderr = aggregate_timeseries("G_time", "G_t")
-        G_corr_time, G_corr_values, _, _ = aggregate_timeseries(
-            "G_time", "G_autocorr_t"
-        )
+        G_time, G_values, G_mean, G_stderr = aggregate_timeseries("G_time", "G_t")
         msd_time, _, msd_mean, msd_stderr = aggregate_timeseries("msd_time", "msd")
-        if G_corr_time is not None and G_corr_values is not None:
-            g_time_by_eps[epsilon] = G_corr_time
-            g_values_by_eps[epsilon] = G_corr_values
+        if G_time is not None and G_values is not None:
+            g_time_by_eps[epsilon] = G_time
+            g_values_by_eps[epsilon] = G_values
 
         # Fraction of sticker degrees across all frames/replicates
         frac_bond0_all = np.concatenate(
@@ -1400,10 +1416,16 @@ def main() -> None:
             )
         if cs_time is not None and cs_values is not None:
             bond_fit_window = get_bond_tau_fit_window(epsilon)
+            cs_time_fit, cs_values_fit = truncate_lag(
+                cs_time, cs_values, args.max_lag_frames
+            )
+            cs_time_fit, cs_values_fit = truncate_time_window(
+                cs_time_fit, cs_values_fit, bond_fit_window
+            )
             write_autocorr_fit_plot(
                 os.path.join(eps_dir, "bond_correlation_fit.png"),
-                cs_time,
-                cs_values,
+                cs_time_fit,
+                cs_values_fit,
                 title=f"Bond Correlation Decay (eps={epsilon:g})",
                 y_label="C_s(t)",
                 fit_window=bond_fit_window,

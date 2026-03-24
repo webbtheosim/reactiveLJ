@@ -9,6 +9,10 @@ Differences vs the melt suite:
 - The simulation uses a bulk MPCD solvent with default SRD settings.
 - The polymer concentration is targeted to 2 wt% (default) in solvent mass.
 - The simulation box length is fixed to the melt-suite box length.
+
+When ``reactive_epsilon <= 0``, the workflow automatically falls back to pure
+WCA sticker-sticker interactions (no ReactiveLJ force). In that mode, sticky
+beads are dynamically identical to backbone beads in nonbonded interactions.
 """
 
 from __future__ import annotations
@@ -787,6 +791,7 @@ def write_metadata(
     epsilon: float,
     replicate: int,
     seed: int,
+    reactive_lj_enabled: bool,
     composition: dict,
     target_box_length: float | None = None,
     raw_target_box_length: float | None = None,
@@ -798,6 +803,7 @@ def write_metadata(
     data.update(
         {
             "reactive_epsilon": epsilon,
+            "reactive_lj_enabled": reactive_lj_enabled,
             "replicate": replicate,
             "seed": seed,
             "n_particles": n_chains * cfg.chain_length,
@@ -826,7 +832,9 @@ def write_metadata(
 
 
 def build_integrator(
-    cfg: SimulationConfig, nlist: hoomd.md.nlist.NeighborList
+    cfg: SimulationConfig,
+    nlist: hoomd.md.nlist.NeighborList,
+    reactive_lj_enabled: bool,
 ) -> hoomd.mpcd.Integrator:
     pair = hoomd.md.pair.LJ(nlist=nlist)
     wca_cut = 2 ** (1.0 / 6.0)
@@ -841,8 +849,15 @@ def build_integrator(
     )
     pair.r_cut[("backbone", "sticky")] = wca_cut
 
-    # Keep sticker-sticker repulsion exclusively in ReactiveLJ to avoid double counting.
-    pair.params[("sticky", "sticky")] = dict(epsilon=0.0, sigma=cfg.lj_sigma)
+    if reactive_lj_enabled:
+        # Keep sticker-sticker repulsion exclusively in ReactiveLJ to avoid
+        # double counting.
+        pair.params[("sticky", "sticky")] = dict(epsilon=0.0, sigma=cfg.lj_sigma)
+    else:
+        # epsilon <= 0 fallback: sticky beads use the same WCA as backbone beads.
+        pair.params[("sticky", "sticky")] = dict(
+            epsilon=cfg.lj_epsilon, sigma=cfg.lj_sigma
+        )
     pair.r_cut[("sticky", "sticky")] = wca_cut
 
     fene = hoomd.md.bond.FENEWCA()
@@ -909,6 +924,7 @@ def main() -> None:
 
     cfg = SimulationConfig()
     cfg.reactive_epsilon = args.epsilon
+    reactive_lj_enabled = cfg.reactive_epsilon > 0.0
     if args.weakening_exponent is not None:
         cfg.weakening_exponent = args.weakening_exponent
     if args.polymer_weight_fraction is not None:
@@ -975,6 +991,7 @@ def main() -> None:
         args.epsilon,
         args.replicate,
         seed,
+        reactive_lj_enabled=reactive_lj_enabled,
         composition=composition,
         target_box_length=target_box_length,
         raw_target_box_length=raw_target_box_length,
@@ -1014,7 +1031,11 @@ def main() -> None:
     # Integrator and updaters
     pair_nlist = hoomd.md.nlist.Cell(buffer=cfg.nlist_buffer)
     reactive_nlist = hoomd.md.nlist.Cell(buffer=cfg.nlist_buffer)
-    integrator = build_integrator(cfg, pair_nlist)
+    integrator = build_integrator(
+        cfg,
+        pair_nlist,
+        reactive_lj_enabled=reactive_lj_enabled,
+    )
     sim.operations.integrator = integrator
 
     zero_momentum = hoomd.md.update.ZeroMomentum(
@@ -1034,16 +1055,21 @@ def main() -> None:
         sim.run(cfg.unsticky_equil_steps)
         print("Stage=unsticky_equil done", flush=True)
 
-    # --- Enable stickers and ReactiveLJ ---
+    # --- Enable stickers and optionally ReactiveLJ ---
     print("Stage=enable_reactive start", flush=True)
     set_stickers(sim, cfg)
     validate_stickers(sim, cfg)
     report_min_ss_distance(sim)
+    if not reactive_lj_enabled:
+        print(
+            "Stage=enable_reactive info=ReactiveLJ disabled (epsilon<=0); "
+            "using WCA-only sticky-sticky interactions.",
+            flush=True,
+        )
     print("Stage=enable_reactive done", flush=True)
 
-    # --- Reactive equilibration stage ---
-    reactive = None
-    if cfg.reactive_equil_steps > 0:
+    # --- Reactive equilibration stage (or WCA fallback) ---
+    if reactive_lj_enabled and cfg.reactive_equil_steps > 0:
         print(
             f"Stage=reactive_equil start steps={cfg.reactive_equil_steps}",
             flush=True,
@@ -1054,6 +1080,7 @@ def main() -> None:
         total_steps = cfg.reactive_equil_steps
         ramp_step = 1000
         n_segments = (total_steps + ramp_step - 1) // ramp_step
+        reactive = None
         report_interval = max(1, n_segments // 20)
         ramp_dt = 1.0e-5
         integrator.dt = ramp_dt
@@ -1114,8 +1141,16 @@ def main() -> None:
         integrator.dt = dt_end
         print("Stage=reactive_equil dt_ramp done", flush=True)
         print("Stage=reactive_equil done", flush=True)
-    else:
+    elif reactive_lj_enabled:
         reactive = add_reactive_lj(integrator, reactive_nlist, cfg)
+    elif cfg.reactive_equil_steps > 0:
+        print(
+            "Stage=reactive_equil start "
+            f"steps={cfg.reactive_equil_steps} mode=WCA_fallback",
+            flush=True,
+        )
+        sim.run(cfg.reactive_equil_steps)
+        print("Stage=reactive_equil done mode=WCA_fallback", flush=True)
 
     # --- Production stage ---
     print(

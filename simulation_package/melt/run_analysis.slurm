@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=reactiveLJ_analysis
-#SBATCH --time=01:02:00
-#SBATCH --cpus-per-task=64
+#SBATCH --time=06:00:00
+#SBATCH --cpus-per-task=16
 #SBATCH --mem=64G
 #SBATCH --nodes=1
 #SBATCH --output=logs/run_analysis_%j.out

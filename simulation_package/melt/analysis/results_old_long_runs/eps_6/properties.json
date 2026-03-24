@@ -1,0 +1,46 @@
+{
+  "p_open": {
+    "mean": 0.26406519375,
+    "stderr": 6.0205052138102535e-05
+  },
+  "bonding_probability_p": {
+    "mean": 0.7359348062500001,
+    "stderr": 6.020505213809066e-05
+  },
+  "gelation_epsilon": {
+    "mean": 1.20780441875,
+    "stderr": 0.00018061515641429733
+  },
+  "stickers_per_chain_f": {
+    "mean": 4.0,
+    "stderr": 0.0
+  },
+  "gel_point_p_c": {
+    "mean": 0.33333333333333337,
+    "stderr": 1.850371707708594e-17
+  },
+  "intra_to_inter_bond_ratio": {
+    "mean": 0.04752202886196271,
+    "stderr": 3.539093304670227e-05
+  },
+  "bond_persistence_time_tau_s": {
+    "mean": 58.951556195010404,
+    "stderr": 0.016902086009018318
+  },
+  "open_sticker_persistence_time_tau_b": {
+    "mean": NaN,
+    "stderr": NaN
+  },
+  "fluctuation_relaxation_time_tau_c": {
+    "mean": 20286.404220388824,
+    "stderr": 3245.263047110453
+  },
+  "associative_exchange_rate_R_a": {
+    "mean": 0.01387362165677265,
+    "stderr": 4.989708379518464e-06
+  },
+  "passive_dimerization_rate_R_d": {
+    "mean": 0.0035465274720911356,
+    "stderr": 7.825079744481131e-07
+  }
+}

@@ -1,0 +1,6 @@
+*Warning*: Provided seed 150003 is larger than 65535. Truncating to 18931.
+HOOMD build: source_dir=/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/hoomd-blue git_sha1=485771cd90b48b896f1fbb7cec35a8b14c9116ee compile_date=2026-02-10 gpu_enabled=True gpu_platform=CUDA
+many_body_py=/home/mc7345/micromamba/envs/reactiveLJ_paper/lib/python3.14/site-packages/hoomd/md/many_body.py
+ReactiveLJForceComputeGPU_present=True
+Device=<hoomd.device.GPU object at 0x15118ba45160>
+[2026-03-20T18:45:49.807] error: *** JOB 2309974 ON tiger-g06c3g2 CANCELLED AT 2026-03-20T18:45:49 DUE to SIGNAL Terminated ***

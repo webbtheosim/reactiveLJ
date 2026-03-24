@@ -1,0 +1,12 @@
+[2026-03-17 12:14:19] Step 1/8: Purging modules
+[2026-03-17 12:14:19] Step 2/8: Sourcing ~/.bashrc
+[2026-03-17 12:14:20] Step 3/8: Loading anaconda module
+[2026-03-17 12:14:20] Step 4/8: Activating conda environment
+[2026-03-17 12:14:21] Step 5/8: Changing directory to /scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/melt
+[2026-03-17 12:14:21] Step 6/8: Ensuring logs directory exists
+[2026-03-17 12:14:21] Step 7/8: Measuring tau_s and tau_b versus dump interval
+Analyzing 29 replicate trajectories for epsilons 12, 15, 18 with strides 1, 2, 3, 4, 6, 8, 12, 16, 20
+Wrote aggregate tau data to /scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/melt/analysis/tau_s_tau_b_vs_dump_interval.csv
+Wrote tau_s/tau_b plot to /scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/melt/analysis/tau_s_tau_b_vs_dump_interval.png
+[2026-03-17 12:24:15] Step 7/8 complete: tau sweep finished in 594 seconds
+[2026-03-17 12:24:15] Step 8/8: Job complete in 596 seconds total

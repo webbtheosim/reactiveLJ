@@ -1,0 +1,79 @@
+HOOMD build: source_dir=/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/hoomd-blue git_sha1=485771cd90b48b896f1fbb7cec35a8b14c9116ee compile_date=2026-02-10 gpu_enabled=True gpu_platform=CUDA
+many_body_py=/home/mc7345/micromamba/envs/reactiveLJ_paper/lib/python3.14/site-packages/hoomd/md/many_body.py
+ReactiveLJForceComputeGPU_present=True
+Device=<hoomd.device.GPU object at 0x1550d5c3d160>
+Initialization: placed 200/4000 chains (fraction_accepted=1.0000)
+Initialization: placed 400/4000 chains (fraction_accepted=1.0000)
+Initialization: placed 600/4000 chains (fraction_accepted=1.0000)
+Initialization: placed 800/4000 chains (fraction_accepted=1.0000)
+Initialization: placed 1000/4000 chains (fraction_accepted=0.9990)
+Initialization: placed 1200/4000 chains (fraction_accepted=0.9983)
+Initialization: placed 1400/4000 chains (fraction_accepted=0.9979)
+Initialization: placed 1600/4000 chains (fraction_accepted=0.9981)
+Initialization: placed 1800/4000 chains (fraction_accepted=0.9978)
+Initialization: placed 2000/4000 chains (fraction_accepted=0.9965)
+Initialization: placed 2200/4000 chains (fraction_accepted=0.9950)
+Initialization: placed 2400/4000 chains (fraction_accepted=0.9942)
+Initialization: placed 2600/4000 chains (fraction_accepted=0.9912)
+Initialization: placed 2800/4000 chains (fraction_accepted=0.9880)
+Initialization: placed 3000/4000 chains (fraction_accepted=0.9826)
+Initialization: placed 3200/4000 chains (fraction_accepted=0.9783)
+Initialization: placed 3400/4000 chains (fraction_accepted=0.9618)
+Initialization: placed 3600/4000 chains (fraction_accepted=0.9412)
+Initialization: placed 3800/4000 chains (fraction_accepted=0.8988)
+Initialization: placed 4000/4000 chains (fraction_accepted=0.8494)
+Initialization: chain placement complete.
+Stage=unsticky_equil start steps=100000
+Stage=unsticky_equil done
+Stage=enable_reactive start
+Sticker diagnostics: S count=16000, min_S_S=0.915555
+Stage=enable_reactive done
+Stage=reactive_equil start steps=1000000
+Stage=reactive_equil progress=0.1% segment 1/1000 epsilon=0.0001 steps=1000
+Stage=reactive_equil progress=5.1% segment 51/1000 epsilon=9.4995e-05 steps=1000
+Stage=reactive_equil progress=10.1% segment 101/1000 epsilon=8.999e-05 steps=1000
+Stage=reactive_equil progress=15.1% segment 151/1000 epsilon=8.4985e-05 steps=1000
+Stage=reactive_equil progress=20.1% segment 201/1000 epsilon=7.998e-05 steps=1000
+Stage=reactive_equil progress=25.1% segment 251/1000 epsilon=7.4975e-05 steps=1000
+Stage=reactive_equil progress=30.1% segment 301/1000 epsilon=6.997e-05 steps=1000
+Stage=reactive_equil progress=35.1% segment 351/1000 epsilon=6.4965e-05 steps=1000
+Stage=reactive_equil progress=40.1% segment 401/1000 epsilon=5.996e-05 steps=1000
+Stage=reactive_equil progress=45.1% segment 451/1000 epsilon=5.4955e-05 steps=1000
+Stage=reactive_equil progress=50.1% segment 501/1000 epsilon=4.99499e-05 steps=1000
+Stage=reactive_equil progress=55.1% segment 551/1000 epsilon=4.49449e-05 steps=1000
+Stage=reactive_equil progress=60.1% segment 601/1000 epsilon=3.99399e-05 steps=1000
+Stage=reactive_equil progress=65.1% segment 651/1000 epsilon=3.49349e-05 steps=1000
+Stage=reactive_equil progress=70.1% segment 701/1000 epsilon=2.99299e-05 steps=1000
+Stage=reactive_equil progress=75.1% segment 751/1000 epsilon=2.49249e-05 steps=1000
+Stage=reactive_equil progress=80.1% segment 801/1000 epsilon=1.99199e-05 steps=1000
+Stage=reactive_equil progress=85.1% segment 851/1000 epsilon=1.49149e-05 steps=1000
+Stage=reactive_equil progress=90.1% segment 901/1000 epsilon=9.90991e-06 steps=1000
+Stage=reactive_equil progress=95.1% segment 951/1000 epsilon=4.9049e-06 steps=1000
+Error in sys.excepthook:
+Traceback (most recent call last):
+  File "/home/mc7345/micromamba/envs/reactiveLJ_paper/lib/python3.14/site-packages/hoomd/__init__.py", line 102, in _hoomd_sys_excepthook
+    write.gsd._flush_open_gsd_writers()
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'hoomd.write.gsd' has no attribute '_flush_open_gsd_writers'
+
+Original exception was:
+Traceback (most recent call last):
+  File "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/melt/data_generation/run_reactive_lj.py", line 984, in <module>
+    main()
+    ~~~~^^
+  File "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/melt/data_generation/run_reactive_lj.py", line 885, in main
+    reactive = add_reactive_lj(integrator, reactive_nlist, cfg, epsilon=epsilon)
+  File "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/melt/data_generation/run_reactive_lj.py", line 740, in add_reactive_lj
+    reactive = hoomd.md.many_body.ReactiveLJ(
+        nlist=nlist,
+    ...<9 lines>...
+        smooth_beta=cfg.smooth_beta,
+    )
+  File "/home/mc7345/micromamba/envs/reactiveLJ_paper/lib/python3.14/site-packages/hoomd/md/many_body.py", line 577, in __init__
+    param_dict["epsilon"] = epsilon
+    ~~~~~~~~~~^^^^^^^^^^^
+  File "/home/mc7345/micromamba/envs/reactiveLJ_paper/lib/python3.14/site-packages/hoomd/data/parameterdicts.py", line 653, in __setitem__
+    validated_value = self._type_converter[key](value)
+  File "/home/mc7345/micromamba/envs/reactiveLJ_paper/lib/python3.14/site-packages/hoomd/data/typeconverter.py", line 94, in positive_real
+    raise TypeConversionError("Expected a number greater than zero.")
+hoomd.error.TypeConversionError: Expected a number greater than zero.

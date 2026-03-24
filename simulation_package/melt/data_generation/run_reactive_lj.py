@@ -4,7 +4,11 @@ This script builds a KG melt (random-walk with rejection sampling), performs an
 unsticky melt equilibration, assigns sticker identities, turns on the ReactiveLJ
 interaction, equilibrates
 again, and finally runs production while writing trajectory frames to GSD plus
-a separate high-frequency pressure-tensor log.
+a separate high-frequency virial-tensor log.
+
+When ``reactive_epsilon <= 0``, the workflow automatically falls back to pure
+WCA sticker-sticker interactions (no ReactiveLJ force). In that mode, sticky
+beads are dynamically identical to backbone beads in nonbonded interactions.
 
 All key parameters are configurable via CLI flags. Keep this file as the
 single source of truth for the Block 1 protocol, and adjust values as needed.
@@ -34,6 +38,39 @@ except Exception as exc:  # pragma: no cover - required dependency
     raise RuntimeError("numba is required to run ReactiveLJ data generation.") from exc
 
 
+DEFAULT_TAU_R0 = 4041.0
+DEFAULT_TARGET_PRODUCTION_TAU_R0 = 10.0
+DEFAULT_VIRIAL_LOG_STEPS = 1000
+DEFAULT_REACTIVE_DT_RAMP_STEPS = 100_000
+
+
+class VirialTensorLogger(hoomd.custom.Action):
+    """Log the configurational virial tensor without the kinetic contribution."""
+
+    def __init__(self, sim: hoomd.Simulation):
+        self._sim = sim
+
+    @hoomd.logging.log(category="sequence")
+    def virial_tensor(self):
+        integrator = self._sim.operations.integrator
+        if integrator is None:
+            raise RuntimeError("Integrator must be attached before logging virials.")
+
+        total = np.zeros(6, dtype=np.float64)
+        for force in integrator.forces:
+            virials = force.virials
+            if virials is not None:
+                total += np.asarray(virials, dtype=np.float64).sum(axis=0)
+            additional = force.additional_virial
+            if additional is not None:
+                total += np.asarray(additional, dtype=np.float64).reshape(6)
+
+        return total / float(self._sim.state.box.volume)
+
+    def act(self, timestep):
+        return None
+
+
 @dataclass
 class SimulationConfig:
     # System size and thermodynamic state
@@ -51,9 +88,6 @@ class SimulationConfig:
 
     # Sticker placement
     stickers_per_chain: int = 4
-    # Evenly spaced along the backbone; segment/offset are deprecated.
-    segment_length: int = 10  # deprecated (unused)
-    sticker_offset_in_segment: int = 4  # deprecated (unused)
 
     # Integrator
     dt: float = 0.005
@@ -76,12 +110,13 @@ class SimulationConfig:
     smooth_beta: float = 1.0
 
     # Run lengths (steps)
-    # NOTE: defaults are short for quick setup validation; increase for production.
+    # Run 10 tau_R^0 in production, matching the current shorter rerun
+    # target. Production steps are derived from this target in main().
     unsticky_equil_steps: int = 100_000
     reactive_equil_steps: int = 1_000_000
-    production_steps: int = 1_000_000
+    production_steps: int = 0
     frame_steps: int = 10_000
-    pressure_log_steps: int = 1
+    virial_log_steps: int = DEFAULT_VIRIAL_LOG_STEPS
 
     # Angle table
     angle_table_width: int = 1000
@@ -146,10 +181,13 @@ def parse_args() -> argparse.Namespace:
         help="GSD frame spacing in steps (default 10_000).",
     )
     parser.add_argument(
-        "--pressure-log-steps",
+        "--virial-log-steps",
         type=int,
         default=None,
-        help="Pressure-tensor log spacing in steps (default 1).",
+        help=(
+            "Virial-tensor log spacing in steps "
+            f"(default {DEFAULT_VIRIAL_LOG_STEPS})."
+        ),
     )
     parser.add_argument(
         "--unsticky-equil-steps",
@@ -164,10 +202,14 @@ def parse_args() -> argparse.Namespace:
         help="Equilibration steps after enabling ReactiveLJ.",
     )
     parser.add_argument(
-        "--production-steps",
-        type=int,
+        "--production-runtime-tau-r0",
+        type=float,
         default=None,
-        help="Production run length in steps.",
+        help=(
+            f"Production run length expressed in units of the unsticky Rouse time "
+            f"tau_R^0={DEFAULT_TAU_R0:g} tau_LJ "
+            f"(default {DEFAULT_TARGET_PRODUCTION_TAU_R0:g})."
+        ),
     )
     parser.add_argument(
         "--weakening-exponent",
@@ -181,6 +223,29 @@ def parse_args() -> argparse.Namespace:
 def compute_box_length(n_particles: int, density: float) -> float:
     volume = n_particles / density
     return volume ** (1.0 / 3.0)
+
+
+def production_steps_for_tau_r0(runtime_tau_r0: float, dt: float) -> int:
+    """Convert a target runtime in tau_R^0 into MD integration steps."""
+    if runtime_tau_r0 <= 0.0:
+        raise ValueError("production runtime in tau_R^0 must be positive")
+    return int(np.ceil(runtime_tau_r0 * DEFAULT_TAU_R0 / dt))
+
+
+def reactive_dt_ramp_steps(cfg: SimulationConfig, reactive_lj_enabled: bool) -> int:
+    if reactive_lj_enabled and cfg.reactive_equil_steps > 0:
+        return DEFAULT_REACTIVE_DT_RAMP_STEPS
+    return 0
+
+
+def total_reactive_stage_steps(
+    cfg: SimulationConfig, reactive_lj_enabled: bool
+) -> int:
+    return cfg.reactive_equil_steps + reactive_dt_ramp_steps(cfg, reactive_lj_enabled)
+
+
+def pre_production_steps(cfg: SimulationConfig, reactive_lj_enabled: bool) -> int:
+    return cfg.unsticky_equil_steps + total_reactive_stage_steps(cfg, reactive_lj_enabled)
 
 
 @numba.njit(cache=True)
@@ -578,70 +643,6 @@ def validate_stickers(sim: hoomd.Simulation, cfg: SimulationConfig) -> None:
                 )
 
 
-def report_min_ss_distance(sim: hoomd.Simulation) -> None:
-    """Report the minimum S-S distance using a chunked minimum-image search."""
-    if sim.device.communicator.num_ranks != 1:
-        raise RuntimeError("report_min_ss_distance requires a single-rank simulation.")
-    snap = sim.state.get_snapshot()
-    if snap is None:
-        print("Sticker diagnostics: snapshot unavailable.", flush=True)
-        return
-    pos = np.asarray(snap.particles.position, dtype=np.float64)
-    typeid = np.asarray(snap.particles.typeid, dtype=np.int32)
-    raw_tags = getattr(snap.particles, "tag", None)
-    if raw_tags is None or len(raw_tags) == 0:
-        tags = np.arange(pos.shape[0], dtype=np.int64)
-    else:
-        tags = np.asarray(raw_tags, dtype=np.int64)
-    box = np.asarray(snap.configuration.box, dtype=np.float64)
-
-    if pos.size == 0:
-        print("Sticker diagnostics: no particles in snapshot.", flush=True)
-        return
-
-    s_mask = typeid == 1
-    s_pos = pos[s_mask]
-    s_tags = tags[s_mask]
-    n_s = s_pos.shape[0]
-    if n_s < 2:
-        print(f"Sticker diagnostics: S count={n_s}, min_S_S=nan", flush=True)
-        return
-
-    Lx, Ly, Lz = box[0], box[1], box[2]
-    if not (box[3] == 0.0 and box[4] == 0.0 and box[5] == 0.0):
-        print(
-            "Sticker diagnostics: triclinic box detected; min S-S distance is approximate.",
-            flush=True,
-        )
-
-    min_dist2 = np.inf
-    chunk = 512
-    for i0 in range(0, n_s, chunk):
-        i1 = min(n_s, i0 + chunk)
-        a = s_pos[i0:i1]
-        b = s_pos[i0:]
-        d = a[:, None, :] - b[None, :, :]
-        if Lx > 0:
-            d[..., 0] -= Lx * np.rint(d[..., 0] / Lx)
-        if Ly > 0:
-            d[..., 1] -= Ly * np.rint(d[..., 1] / Ly)
-        if Lz > 0:
-            d[..., 2] -= Lz * np.rint(d[..., 2] / Lz)
-        dist2 = np.einsum("ijk,ijk->ij", d, d)
-        # mask self-distances in this block
-        for k in range(i1 - i0):
-            dist2[k, k] = np.inf
-        local_min = dist2.min()
-        if local_min < min_dist2:
-            min_dist2 = local_min
-
-    min_dist = float(np.sqrt(min_dist2)) if np.isfinite(min_dist2) else float("nan")
-    print(
-        f"Sticker diagnostics: S count={n_s}, min_S_S={min_dist:.6f}",
-        flush=True,
-    )
-
-
 def make_angle_table(cfg: SimulationConfig) -> tuple[np.ndarray, np.ndarray]:
     """Tabulate U(theta) = k_bend * (1 + cos(theta)) and its torque."""
     theta = np.linspace(0, np.pi, cfg.angle_table_width)
@@ -657,13 +658,16 @@ def write_metadata(
     epsilon: float,
     replicate: int,
     seed: int,
+    reactive_lj_enabled: bool,
     target_box_length: float | None = None,
     initial_box_length: float | None = None,
+    extra_metadata: dict | None = None,
 ) -> None:
     data = asdict(cfg)
     data.update(
         {
             "reactive_epsilon": epsilon,
+            "reactive_lj_enabled": reactive_lj_enabled,
             "replicate": replicate,
             "seed": seed,
             "n_particles": cfg.n_chains * cfg.chain_length,
@@ -673,6 +677,8 @@ def write_metadata(
         data["target_box_length"] = target_box_length
     if initial_box_length is not None:
         data["initial_box_length"] = initial_box_length
+    if extra_metadata:
+        data.update(extra_metadata)
     data["init_min_dist"] = cfg.init_min_dist
     data["init_bond_length"] = cfg.init_bond_length
     data["max_chain_attempts"] = cfg.max_chain_attempts
@@ -682,7 +688,9 @@ def write_metadata(
 
 
 def build_integrator(
-    cfg: SimulationConfig, nlist: hoomd.md.nlist.NeighborList
+    cfg: SimulationConfig,
+    nlist: hoomd.md.nlist.NeighborList,
+    reactive_lj_enabled: bool,
 ) -> hoomd.md.Integrator:
     pair = hoomd.md.pair.LJ(nlist=nlist)
     wca_cut = 2 ** (1.0 / 6.0)
@@ -697,8 +705,15 @@ def build_integrator(
     )
     pair.r_cut[("backbone", "sticky")] = wca_cut
 
-    # Keep sticker-sticker repulsion exclusively in ReactiveLJ to avoid double counting.
-    pair.params[("sticky", "sticky")] = dict(epsilon=0.0, sigma=cfg.lj_sigma)
+    if reactive_lj_enabled:
+        # Keep sticker-sticker repulsion exclusively in ReactiveLJ to avoid
+        # double counting.
+        pair.params[("sticky", "sticky")] = dict(epsilon=0.0, sigma=cfg.lj_sigma)
+    else:
+        # epsilon <= 0 fallback: sticky beads use the same WCA as backbone beads.
+        pair.params[("sticky", "sticky")] = dict(
+            epsilon=cfg.lj_epsilon, sigma=cfg.lj_sigma
+        )
     pair.r_cut[("sticky", "sticky")] = wca_cut
 
     fene = hoomd.md.bond.FENEWCA()
@@ -759,13 +774,14 @@ def main() -> None:
 
     cfg = SimulationConfig()
     cfg.reactive_epsilon = args.epsilon
+    reactive_lj_enabled = cfg.reactive_epsilon > 0.0
     if args.weakening_exponent is not None:
         cfg.weakening_exponent = args.weakening_exponent
 
     if args.frame_steps is not None:
         cfg.frame_steps = args.frame_steps
-    if args.pressure_log_steps is not None:
-        cfg.pressure_log_steps = args.pressure_log_steps
+    if args.virial_log_steps is not None:
+        cfg.virial_log_steps = args.virial_log_steps
     if args.init_min_dist is not None:
         cfg.init_min_dist = args.init_min_dist
     if args.init_bond_length is not None:
@@ -774,8 +790,16 @@ def main() -> None:
         cfg.unsticky_equil_steps = args.unsticky_equil_steps
     if args.reactive_equil_steps is not None:
         cfg.reactive_equil_steps = args.reactive_equil_steps
-    if args.production_steps is not None:
-        cfg.production_steps = args.production_steps
+    target_production_tau_r0 = DEFAULT_TARGET_PRODUCTION_TAU_R0
+    if args.production_runtime_tau_r0 is not None:
+        target_production_tau_r0 = float(args.production_runtime_tau_r0)
+    cfg.production_steps = production_steps_for_tau_r0(
+        target_production_tau_r0, cfg.dt
+    )
+    production_runtime_tau_r0 = cfg.production_steps * cfg.dt / DEFAULT_TAU_R0
+    reactive_stage_steps = total_reactive_stage_steps(cfg, reactive_lj_enabled)
+    pre_production_total_steps = pre_production_steps(cfg, reactive_lj_enabled)
+    pre_production_runtime_tau_r0 = pre_production_total_steps * cfg.dt / DEFAULT_TAU_R0
 
     seed = args.seed
     if seed is None:
@@ -796,29 +820,21 @@ def main() -> None:
         args.epsilon,
         args.replicate,
         seed,
+        reactive_lj_enabled=reactive_lj_enabled,
         target_box_length=target_box_length,
         initial_box_length=initial_box_length,
+        extra_metadata={
+            "tau_R0": DEFAULT_TAU_R0,
+            "production_runtime_tau_r0": production_runtime_tau_r0,
+            "reactive_dt_ramp_steps": reactive_dt_ramp_steps(cfg, reactive_lj_enabled),
+            "reactive_equil_total_steps": reactive_stage_steps,
+            "pre_production_steps": pre_production_total_steps,
+            "pre_production_runtime_tau_r0": pre_production_runtime_tau_r0,
+        },
     )
 
     device = hoomd.device.GPU() if args.device == "gpu" else hoomd.device.CPU()
     sim = hoomd.Simulation(device=device, seed=seed)
-
-    print(
-        "HOOMD build:",
-        f"source_dir={hoomd.version.source_dir}",
-        f"git_sha1={hoomd.version.git_sha1}",
-        f"compile_date={hoomd.version.compile_date}",
-        f"gpu_enabled={hoomd.version.gpu_enabled}",
-        f"gpu_platform={hoomd.version.gpu_platform}",
-        flush=True,
-    )
-    print(f"many_body_py={hoomd.md.many_body.__file__}", flush=True)
-    print(
-        "ReactiveLJForceComputeGPU_present="
-        f"{hasattr(hoomd.md._md, 'ReactiveLJForceComputeGPU')}",
-        flush=True,
-    )
-    print(f"Device={sim.device}", flush=True)
 
     # Build the initial melt snapshot with random-walk + rejection sampling
     snapshot = build_snapshot(cfg, seed, initial_box_length)
@@ -827,7 +843,11 @@ def main() -> None:
     # Integrator and updaters
     pair_nlist = hoomd.md.nlist.Cell(buffer=cfg.nlist_buffer)
     reactive_nlist = hoomd.md.nlist.Cell(buffer=cfg.nlist_buffer)
-    integrator = build_integrator(cfg, pair_nlist)
+    integrator = build_integrator(
+        cfg,
+        pair_nlist,
+        reactive_lj_enabled=reactive_lj_enabled,
+    )
     sim.operations.integrator = integrator
 
     zero_momentum = hoomd.md.update.ZeroMomentum(
@@ -847,16 +867,20 @@ def main() -> None:
         sim.run(cfg.unsticky_equil_steps)
         print("Stage=unsticky_equil done", flush=True)
 
-    # --- Enable stickers and ReactiveLJ ---
+    # --- Enable stickers and optionally ReactiveLJ ---
     print("Stage=enable_reactive start", flush=True)
     set_stickers(sim, cfg)
     validate_stickers(sim, cfg)
-    report_min_ss_distance(sim)
+    if not reactive_lj_enabled:
+        print(
+            "Stage=enable_reactive info=ReactiveLJ disabled (epsilon<=0); "
+            "using WCA-only sticky-sticky interactions.",
+            flush=True,
+        )
     print("Stage=enable_reactive done", flush=True)
 
-    # --- Reactive equilibration stage ---
-    reactive = None
-    if cfg.reactive_equil_steps > 0:
+    # --- Reactive equilibration stage (or WCA fallback) ---
+    if reactive_lj_enabled and cfg.reactive_equil_steps > 0:
         print(
             f"Stage=reactive_equil start steps={cfg.reactive_equil_steps}",
             flush=True,
@@ -897,7 +921,7 @@ def main() -> None:
         print("Stage=reactive_equil epsilon_ramp done", flush=True)
 
         # After the epsilon ramp, gradually restore the production timestep.
-        dt_ramp_steps = 100_000
+        dt_ramp_steps = DEFAULT_REACTIVE_DT_RAMP_STEPS
         dt_ramp_step = 1000
         dt_start = ramp_dt
         dt_end = cfg.dt
@@ -928,47 +952,57 @@ def main() -> None:
         integrator.dt = dt_end
         print("Stage=reactive_equil dt_ramp done", flush=True)
         print("Stage=reactive_equil done", flush=True)
-    else:
+    elif reactive_lj_enabled:
         reactive = add_reactive_lj(integrator, reactive_nlist, cfg)
+    elif cfg.reactive_equil_steps > 0:
+        print(
+            "Stage=reactive_equil start "
+            f"steps={cfg.reactive_equil_steps} mode=WCA_fallback",
+            flush=True,
+        )
+        sim.run(cfg.reactive_equil_steps)
+        print("Stage=reactive_equil done mode=WCA_fallback", flush=True)
 
     # --- Production stage ---
     print(
-        f"Stage=production start steps={cfg.production_steps}",
+        f"Stage=production start steps={cfg.production_steps} "
+        f"runtime_tau_R0={production_runtime_tau_r0:.3f}",
         flush=True,
     )
-    thermo = hoomd.md.compute.ThermodynamicQuantities(filter=hoomd.filter.All())
-    sim.operations.computes.append(thermo)
+    # Let HOOMD compute virials only on writer-triggered steps instead of
+    # every MD step; the periodic virial writer below is the only consumer.
+    sim.always_compute_pressure = False
 
-    trajectory_logger = hoomd.logging.Logger()
-    trajectory_logger.add(sim, quantities=["timestep"])
+    virial_tensor_logger = VirialTensorLogger(sim)
+    virial_logger = hoomd.logging.Logger()
+    virial_logger.add(virial_tensor_logger, quantities=["virial_tensor"])
 
-    pressure_logger = hoomd.logging.Logger()
-    pressure_logger.add(thermo, quantities=["pressure_tensor"])
-    pressure_logger.add(sim, quantities=["timestep"])
+    trajectory_filter = hoomd.filter.All()
+    trajectory_dynamic = ["particles/position", "particles/image"]
 
     gsd_path = os.path.join(output_dir, "trajectory.gsd")
     gsd_writer = hoomd.write.GSD(
         filename=gsd_path,
         trigger=hoomd.trigger.Periodic(cfg.frame_steps),
         mode="wb",
-        filter=hoomd.filter.All(),
-        # Keep trajectories compact: write only positions, images, and type ids.
-        dynamic=["particles/position", "particles/image", "particles/typeid"],
-        logger=trajectory_logger,
+        filter=trajectory_filter,
+        # Keep the main trajectory self-contained for both structure and MSD
+        # analysis by writing particle positions and images in one file.
+        dynamic=trajectory_dynamic,
     )
     sim.operations.writers.append(gsd_writer)
 
-    pressure_gsd_path = os.path.join(output_dir, "pressure_tensor_log.gsd")
-    pressure_writer = hoomd.write.GSD(
-        filename=pressure_gsd_path,
-        trigger=hoomd.trigger.Periodic(cfg.pressure_log_steps),
+    virial_gsd_path = os.path.join(output_dir, "virial_tensor_log.gsd")
+    virial_writer = hoomd.write.GSD(
+        filename=virial_gsd_path,
+        trigger=hoomd.trigger.Periodic(cfg.virial_log_steps),
         mode="wb",
         # Keep this log compact by excluding per-particle trajectory data.
         filter=hoomd.filter.Null(),
         dynamic=[],
-        logger=pressure_logger,
+        logger=virial_logger,
     )
-    sim.operations.writers.append(pressure_writer)
+    sim.operations.writers.append(virial_writer)
 
     production_start = time.perf_counter()
     sim.run(cfg.production_steps)

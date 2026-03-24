@@ -94,18 +94,26 @@ def iter_neighbor_cells(cell_index: int, n_cells: int) -> Iterable[int]:
                 yield nx + n_cells * (ny + n_cells * nz)
 
 
-def find_sticker_bonds(
+def find_sticker_neighbor_pairs(
     positions: np.ndarray,
     sticker_ids: np.ndarray,
     box_length: float,
     cutoff: float,
-) -> set:
-    """Identify sticker-sticker bonds based on a distance threshold."""
-    sticker_positions = positions[sticker_ids]
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return local sticker-index pairs and distances within ``cutoff``."""
+    sticker_ids_arr = np.asarray(sticker_ids, dtype=np.int32)
+    empty_idx = np.empty((0,), dtype=np.int32)
+    empty_dist = np.empty((0,), dtype=np.float64)
+    if sticker_ids_arr.size < 2 or cutoff <= 0.0:
+        return empty_idx, empty_idx.copy(), empty_dist
+
+    sticker_positions = positions[sticker_ids_arr]
     cell_particles, n_cells = build_cell_list(sticker_positions, box_length, cutoff)
     cutoff_sq = cutoff * cutoff
 
-    bonds: set = set()
+    pair_i: List[int] = []
+    pair_j: List[int] = []
+    pair_dist: List[float] = []
 
     for cell_index, particle_list in enumerate(cell_particles):
         if not particle_list:
@@ -125,10 +133,40 @@ def find_sticker_bonds(
 
                     dx = sticker_positions[i_idx] - sticker_positions[j_idx]
                     dx = minimum_image(dx, box_length)
-                    if np.dot(dx, dx) < cutoff_sq:
-                        i_global = int(sticker_ids[i_idx])
-                        j_global = int(sticker_ids[j_idx])
-                        bonds.add((i_global, j_global) if i_global < j_global else (j_global, i_global))
+                    dist_sq = float(np.dot(dx, dx))
+                    if dist_sq < cutoff_sq:
+                        pair_i.append(i_idx)
+                        pair_j.append(j_idx)
+                        pair_dist.append(np.sqrt(dist_sq))
+
+    if not pair_i:
+        return empty_idx, empty_idx.copy(), empty_dist
+
+    return (
+        np.asarray(pair_i, dtype=np.int32),
+        np.asarray(pair_j, dtype=np.int32),
+        np.asarray(pair_dist, dtype=np.float64),
+    )
+
+
+def find_sticker_bonds(
+    positions: np.ndarray,
+    sticker_ids: np.ndarray,
+    box_length: float,
+    cutoff: float,
+) -> set:
+    """Identify sticker-sticker bonds based on a distance threshold."""
+    pair_i, pair_j, _ = find_sticker_neighbor_pairs(
+        positions, sticker_ids, box_length, cutoff
+    )
+    bonds: set = set()
+    sticker_ids_arr = np.asarray(sticker_ids, dtype=np.int32)
+    for i_idx, j_idx in zip(pair_i, pair_j):
+        i_global = int(sticker_ids_arr[i_idx])
+        j_global = int(sticker_ids_arr[j_idx])
+        bonds.add(
+            (i_global, j_global) if i_global < j_global else (j_global, i_global)
+        )
 
     return bonds
 

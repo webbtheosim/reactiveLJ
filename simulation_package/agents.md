@@ -137,12 +137,11 @@ C_p(\Delta t)=\frac{\left\langle \bigl(p(t_0)-\langle p\rangle\bigr)\bigl(p(t_0+
 and extract $\tau_c$ from $C_p(\Delta t)\sim e^{-\Delta t/\tau_c}$.
 
 \paragraph{Viscoelastic network relaxation modulus $G(t)$.}
-Compute the equilibrium stress autocorrelation (Green--Kubo) modulus
+Compute the equilibrium Green--Kubo shear relaxation modulus from the off-diagonal stress components,
 \begin{equation}
-G(\Delta t)=\frac{V}{k_BT}\left\langle \sigma_{\alpha\beta}(t_0+\Delta t)\,\sigma_{\alpha\beta}(t_0)\right\rangle_{t_0},
-\qquad \alpha\neq\beta,
+G(\Delta t)=\frac{V}{3k_BT}\sum_{\alpha\beta\in\{xy,xz,yz\}}\left\langle \sigma_{\alpha\beta}(t_0+\Delta t)\,\sigma_{\alpha\beta}(t_0)\right\rangle_{t_0}.
 \end{equation}
-averaging over the three off-diagonal shear components $\alpha\beta\in\{xy,xz,yz\}$ and time origins $t_0$.
+Average over the three shear components and time origins $t_0$. To match the O'Connor paper-style $G(t)$ comparison, use this off-diagonal shear form directly rather than a rotationally averaged deviatoric-stress estimator. Also do not assume sample-mean subtraction unless a source explicitly states that a connected autocovariance is desired.
 (Implementation may use a multi-$\tau$ correlator for efficiency.)
 
 \paragraph{Associative vs dissociative (passive dimerization) exchange rates.}

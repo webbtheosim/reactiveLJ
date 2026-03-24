@@ -1,0 +1,23 @@
+Initialization: placed 200/4000 chains (fraction_accepted=1.0000)
+Initialization: placed 400/4000 chains (fraction_accepted=1.0000)
+Initialization: placed 600/4000 chains (fraction_accepted=1.0000)
+Initialization: placed 800/4000 chains (fraction_accepted=1.0000)
+Initialization: placed 1000/4000 chains (fraction_accepted=0.9990)
+Initialization: placed 1200/4000 chains (fraction_accepted=0.9992)
+Initialization: placed 1400/4000 chains (fraction_accepted=0.9986)
+Initialization: placed 1600/4000 chains (fraction_accepted=0.9988)
+Initialization: placed 1800/4000 chains (fraction_accepted=0.9989)
+Initialization: placed 2000/4000 chains (fraction_accepted=0.9985)
+Initialization: placed 2200/4000 chains (fraction_accepted=0.9968)
+Initialization: placed 2400/4000 chains (fraction_accepted=0.9954)
+Initialization: placed 2600/4000 chains (fraction_accepted=0.9931)
+Initialization: placed 2800/4000 chains (fraction_accepted=0.9908)
+Initialization: placed 3000/4000 chains (fraction_accepted=0.9852)
+Initialization: placed 3200/4000 chains (fraction_accepted=0.9753)
+Initialization: placed 3400/4000 chains (fraction_accepted=0.9610)
+Initialization: placed 3600/4000 chains (fraction_accepted=0.9392)
+Initialization: placed 3800/4000 chains (fraction_accepted=0.9013)
+Initialization: placed 4000/4000 chains (fraction_accepted=0.8418)
+Initialization: chain placement complete.
+Stage=unsticky_equil start steps=100000
+[2026-03-23T00:04:28.621] error: *** JOB 2317405 ON tiger-g06c3g2 CANCELLED AT 2026-03-23T00:04:28 DUE to SIGNAL Terminated ***

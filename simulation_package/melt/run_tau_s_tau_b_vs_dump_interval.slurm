@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=tauDumpSweep
 #SBATCH --time=00:30:00
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=64G
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=6G
 #SBATCH --nodes=1
 #SBATCH --output=logs/run_tau_s_tau_b_vs_dump_interval_%j.out
 

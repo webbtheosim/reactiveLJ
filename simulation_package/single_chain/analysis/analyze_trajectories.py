@@ -24,8 +24,10 @@ sys.path.append(os.path.dirname(__file__))
 from analysis_utils import (
     CorrelationAccumulator,
     compute_r_thresh,
+    extract_semilog_linear_region,
     find_sticker_bonds,
     fit_exponential,
+    fit_exponential_semilog_linear_region,
 )
 
 
@@ -120,16 +122,17 @@ def write_autocorr_fit_plot(
     q1 = np.percentile(values, 25.0, axis=0)
     q3 = np.percentile(values, 75.0, axis=0)
 
-    tau_fit = fit_exponential(time, median)
+    tau_fit = fit_exponential_semilog_linear_region(time, median)
+    fit_time, _ = extract_semilog_linear_region(time, median)
 
     fig, ax = plt.subplots(figsize=(6.2, 4.2))
     ax.fill_between(time, q1, q3, color="#9e9e9e", alpha=0.35, label="IQR")
     ax.plot(time, median, color="#121212", lw=2.0, label="Median")
 
-    if np.isfinite(tau_fit):
-        fit_curve = np.exp(-time / tau_fit)
+    if np.isfinite(tau_fit) and fit_time.size > 0:
+        fit_curve = np.exp(-fit_time / tau_fit)
         ax.plot(
-            time,
+            fit_time,
             fit_curve,
             color="#e77500",
             lw=2.0,
@@ -587,7 +590,7 @@ def analyze_replicate(
 
         cs = bond_corr.correlation()
         cs_time = np.arange(1, len(cs) + 1, dtype=np.float64) * frame_dt
-        tau_s = fit_exponential(cs_time, cs)
+        tau_s = fit_exponential_semilog_linear_region(cs_time, cs)
 
         rg_arr = np.asarray(rg_series, dtype=np.float64)
         ree_arr = np.asarray(end_to_end_series, dtype=np.float64)

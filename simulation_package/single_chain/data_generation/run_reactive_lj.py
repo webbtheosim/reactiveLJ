@@ -18,6 +18,8 @@ import sys
 import time
 from dataclasses import asdict, dataclass
 
+import cupy as cp
+import numba
 import numpy as np
 
 import hoomd
@@ -27,10 +29,50 @@ SIM_PACKAGE_DIR = os.path.dirname(SCRIPT_DIR)
 if SIM_PACKAGE_DIR not in sys.path:
     sys.path.insert(0, SIM_PACKAGE_DIR)
 
-try:
-    import numba
-except Exception as exc:  # pragma: no cover - required dependency
-    raise RuntimeError("numba is required to run ReactiveLJ data generation.") from exc
+DEFAULT_TAU_R0 = 4041.0
+DEFAULT_TARGET_PRODUCTION_TAU_R0 = 10.0
+DEFAULT_VIRIAL_LOG_STEPS = 1000
+DEFAULT_REACTIVE_DT_RAMP_STEPS = 100_000
+
+
+class VirialTensorLogger(hoomd.custom.Action):
+    """Log the configurational virial tensor without the kinetic contribution."""
+
+    def __init__(self, sim: hoomd.Simulation):
+        self._sim = sim
+        if not isinstance(sim.device, hoomd.device.GPU):
+            raise RuntimeError(
+                "VirialTensorLogger requires hoomd.device.GPU because it reads "
+                "gpu_local_force_arrays."
+            )
+        if sim.device.communicator.num_ranks != 1:
+            raise RuntimeError(
+                "VirialTensorLogger only supports single-rank runs when using "
+                "gpu_local_force_arrays."
+            )
+
+    @hoomd.logging.log(category="sequence")
+    def virial_tensor(self):
+        integrator = self._sim.operations.integrator
+        if integrator is None:
+            raise RuntimeError("Integrator must be attached before logging virials.")
+
+        total = cp.zeros(6, dtype=cp.float64)
+        for force in integrator.forces:
+            # Reduce the per-particle virials on device and transfer back only
+            # the final 6-component tensor for GSD logging.
+            with force.gpu_local_force_arrays as arrays:
+                virials = arrays.virial
+                if virials is not None:
+                    total += cp.sum(cp.asarray(virials), axis=0, dtype=cp.float64)
+            additional = force.additional_virial
+            if additional is not None:
+                total += cp.asarray(additional, dtype=cp.float64).reshape(6)
+
+        return cp.asnumpy(total / float(self._sim.state.box.volume))
+
+    def act(self, timestep):
+        return None
 
 
 @dataclass
@@ -74,13 +116,11 @@ class SimulationConfig:
     smooth_beta: float = 1.0
 
     # Run lengths (steps)
-    # NOTE: defaults are short for quick setup validation; increase for production.
     unsticky_equil_steps: int = 100_000
     reactive_equil_steps: int = 1_000_000
-    production_steps: int = 1_000_000
-    # If None, defaults to production_steps.
-    pre_production_equil_steps: int | None = None
+    production_steps: int = 0
     frame_steps: int = 10_000
+    virial_log_steps: int = DEFAULT_VIRIAL_LOG_STEPS
 
     # Angle table
     angle_table_width: int = 1000
@@ -163,6 +203,15 @@ def parse_args() -> argparse.Namespace:
         help="GSD frame spacing in steps (default 10_000).",
     )
     parser.add_argument(
+        "--virial-log-steps",
+        type=int,
+        default=None,
+        help=(
+            "Virial-tensor log spacing in steps "
+            f"(default {DEFAULT_VIRIAL_LOG_STEPS})."
+        ),
+    )
+    parser.add_argument(
         "--unsticky-equil-steps",
         type=int,
         default=None,
@@ -175,18 +224,13 @@ def parse_args() -> argparse.Namespace:
         help="Equilibration steps after enabling ReactiveLJ.",
     )
     parser.add_argument(
-        "--production-steps",
-        type=int,
-        default=None,
-        help="Production run length in steps.",
-    )
-    parser.add_argument(
-        "--pre-production-equil-steps",
-        type=int,
+        "--production-runtime-tau-r0",
+        type=float,
         default=None,
         help=(
-            "No-output equilibration steps immediately before production. "
-            "Defaults to production-steps."
+            f"Production run length expressed in units of the unsticky Rouse time "
+            f"tau_R^0={DEFAULT_TAU_R0:g} tau_LJ "
+            f"(default {DEFAULT_TARGET_PRODUCTION_TAU_R0:g})."
         ),
     )
     parser.add_argument(
@@ -274,6 +318,29 @@ def _random_unit_vector() -> np.ndarray:
     vec[1] /= norm
     vec[2] /= norm
     return vec
+
+
+def production_steps_for_tau_r0(runtime_tau_r0: float, dt: float) -> int:
+    """Convert a target runtime in tau_R^0 into MD integration steps."""
+    if runtime_tau_r0 <= 0.0:
+        raise ValueError("production runtime in tau_R^0 must be positive")
+    return int(np.ceil(runtime_tau_r0 * DEFAULT_TAU_R0 / dt))
+
+
+def reactive_dt_ramp_steps(cfg: SimulationConfig, reactive_lj_enabled: bool) -> int:
+    if reactive_lj_enabled and cfg.reactive_equil_steps > 0:
+        return DEFAULT_REACTIVE_DT_RAMP_STEPS
+    return 0
+
+
+def total_reactive_stage_steps(
+    cfg: SimulationConfig, reactive_lj_enabled: bool
+) -> int:
+    return cfg.reactive_equil_steps + reactive_dt_ramp_steps(cfg, reactive_lj_enabled)
+
+
+def pre_production_steps(cfg: SimulationConfig, reactive_lj_enabled: bool) -> int:
+    return cfg.unsticky_equil_steps + total_reactive_stage_steps(cfg, reactive_lj_enabled)
 
 
 @numba.njit(cache=True)
@@ -675,6 +742,7 @@ def write_metadata(
     reactive_lj_enabled: bool,
     target_box_length: float | None = None,
     initial_box_length: float | None = None,
+    extra_metadata: dict | None = None,
 ) -> None:
     data = asdict(cfg)
     data.update(
@@ -692,6 +760,8 @@ def write_metadata(
         data["target_box_length"] = target_box_length
     if initial_box_length is not None:
         data["initial_box_length"] = initial_box_length
+    if extra_metadata:
+        data.update(extra_metadata)
     data["init_min_dist"] = cfg.init_min_dist
     data["init_bond_length"] = cfg.init_bond_length
     data["max_chain_attempts"] = cfg.max_chain_attempts
@@ -798,6 +868,8 @@ def main() -> None:
 
     if args.frame_steps is not None:
         cfg.frame_steps = args.frame_steps
+    if args.virial_log_steps is not None:
+        cfg.virial_log_steps = args.virial_log_steps
     if args.init_min_dist is not None:
         cfg.init_min_dist = args.init_min_dist
     if args.init_bond_length is not None:
@@ -806,13 +878,17 @@ def main() -> None:
         cfg.unsticky_equil_steps = args.unsticky_equil_steps
     if args.reactive_equil_steps is not None:
         cfg.reactive_equil_steps = args.reactive_equil_steps
-    if args.production_steps is not None:
-        cfg.production_steps = args.production_steps
-    if args.pre_production_equil_steps is not None:
-        cfg.pre_production_equil_steps = args.pre_production_equil_steps
+    target_production_tau_r0 = DEFAULT_TARGET_PRODUCTION_TAU_R0
+    if args.production_runtime_tau_r0 is not None:
+        target_production_tau_r0 = float(args.production_runtime_tau_r0)
+    cfg.production_steps = production_steps_for_tau_r0(
+        target_production_tau_r0, cfg.dt
+    )
+    production_runtime_tau_r0 = cfg.production_steps * cfg.dt / DEFAULT_TAU_R0
+    reactive_stage_steps = total_reactive_stage_steps(cfg, reactive_lj_enabled)
+    pre_production_total_steps = pre_production_steps(cfg, reactive_lj_enabled)
+    pre_production_runtime_tau_r0 = pre_production_total_steps * cfg.dt / DEFAULT_TAU_R0
 
-    if cfg.pre_production_equil_steps is None:
-        cfg.pre_production_equil_steps = cfg.production_steps
     if cfg.chain_length < 3:
         raise ValueError("chain_length must be at least 3.")
     if cfg.stickers_per_chain < 0:
@@ -841,6 +917,14 @@ def main() -> None:
         reactive_lj_enabled=reactive_lj_enabled,
         target_box_length=target_box_length,
         initial_box_length=initial_box_length,
+        extra_metadata={
+            "tau_R0": DEFAULT_TAU_R0,
+            "production_runtime_tau_r0": production_runtime_tau_r0,
+            "reactive_dt_ramp_steps": reactive_dt_ramp_steps(cfg, reactive_lj_enabled),
+            "reactive_equil_total_steps": reactive_stage_steps,
+            "pre_production_steps": pre_production_total_steps,
+            "pre_production_runtime_tau_r0": pre_production_runtime_tau_r0,
+        },
     )
 
     device = hoomd.device.GPU() if args.device == "gpu" else hoomd.device.CPU()

@@ -190,13 +190,91 @@ def _exp_decay(time: np.ndarray, tau: float) -> np.ndarray:
     return np.exp(-time / tau)
 
 
+def _fit_exponential_positive_points(
+    time: np.ndarray,
+    corr: np.ndarray,
+    maxfev: int = 100_000,
+) -> float:
+    """Fit corr ~ exp(-t/tau) using all finite positive points provided."""
+    n = min(len(time), len(corr))
+    if n < 2:
+        return float("nan")
+
+    t = np.asarray(time[:n], dtype=np.float64)
+    c = np.asarray(corr[:n], dtype=np.float64)
+    mask = np.isfinite(t) & np.isfinite(c) & (c > 0.0)
+    if np.count_nonzero(mask) < 2:
+        return float("nan")
+
+    t_fit = t[mask]
+    c_fit = c[mask]
+    slope, _ = np.polyfit(t_fit, np.log(c_fit), 1)
+    tau0 = -1.0 / slope if np.isfinite(slope) and slope < 0.0 else max(t_fit[0], 1.0)
+    tau0 = max(tau0, 1e-12)
+
+    try:
+        params, _ = curve_fit(
+            _exp_decay,
+            t_fit,
+            c_fit,
+            p0=(tau0,),
+            bounds=(1e-12, np.inf),
+            maxfev=maxfev,
+        )
+        tau = float(params[0])
+        if np.isfinite(tau) and tau > 0.0:
+            return tau
+    except (RuntimeError, ValueError):
+        pass
+
+    if np.isfinite(slope) and slope < 0.0:
+        return -1.0 / slope
+    return float("nan")
+
+
+def extract_semilog_linear_region(
+    time: np.ndarray,
+    corr: np.ndarray,
+    min_points: int = 4,
+    max_log_deviation: float = 0.15,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Return the longest initial prefix that stays approximately linear on a semilog plot."""
+    n = min(len(time), len(corr))
+    if n < 2:
+        return np.empty((0,), dtype=np.float64), np.empty((0,), dtype=np.float64)
+
+    t = np.asarray(time[:n], dtype=np.float64)
+    c = np.asarray(corr[:n], dtype=np.float64)
+    finite_positive = np.isfinite(t) & np.isfinite(c) & (c > 0.0)
+    if np.count_nonzero(finite_positive) < 2:
+        return np.empty((0,), dtype=np.float64), np.empty((0,), dtype=np.float64)
+
+    t = t[finite_positive]
+    c = c[finite_positive]
+    if t.size <= 2:
+        return t, c
+
+    fit_count = min(max(2, int(min_points)), t.size)
+    log_c = np.log(c)
+    prefix_stop = fit_count
+    for stop in range(fit_count, t.size + 1):
+        slope, intercept = np.polyfit(t[:stop], log_c[:stop], 1)
+        fitted_log_c = slope * t[:stop] + intercept
+        if np.max(np.abs(log_c[:stop] - fitted_log_c)) <= max_log_deviation:
+            prefix_stop = stop
+        else:
+            break
+
+    return t[:prefix_stop], c[:prefix_stop]
+
+
 def fit_exponential(
     time: np.ndarray,
     corr: np.ndarray,
-    min_corr: float = 0.1,
+    min_corr: float | None = 0.1,
     maxfev: int = 100_000,
 ) -> float:
-    """Fit corr ~ exp(-t/tau) with robust fallbacks for fast decays."""
+    """Fit corr ~ exp(-t/tau), optionally excluding low-correlation points."""
     n = min(len(time), len(corr))
     if n < 2:
         return float("nan")
@@ -207,40 +285,39 @@ def fit_exponential(
     if np.count_nonzero(finite_positive) < 2:
         return float("nan")
 
+    if min_corr is None or min_corr <= 0.0:
+        return _fit_exponential_positive_points(t, c, maxfev=maxfev)
+
     threshold_candidates = [min_corr, 0.05, 0.02, 0.01, 0.005, 0.001]
     for threshold in threshold_candidates:
         mask = finite_positive & (c > threshold)
         if np.count_nonzero(mask) < 2:
             continue
 
-        t_fit = t[mask]
-        c_fit = c[mask]
-
-        # Seed tau from a log-linear slope when possible.
-        slope, _ = np.polyfit(t_fit, np.log(c_fit), 1)
-        tau0 = -1.0 / slope if np.isfinite(slope) and slope < 0.0 else max(t_fit[0], 1.0)
-        tau0 = max(tau0, 1e-12)
-
-        try:
-            params, _ = curve_fit(
-                _exp_decay,
-                t_fit,
-                c_fit,
-                p0=(tau0,),
-                bounds=(1e-12, np.inf),
-                maxfev=maxfev,
-            )
-            tau = float(params[0])
-            if np.isfinite(tau) and tau > 0.0:
-                return tau
-        except (RuntimeError, ValueError):
-            pass
-
-        # Fallback to log-linear fit if nonlinear fit did not converge.
-        if np.isfinite(slope) and slope < 0.0:
-            return -1.0 / slope
+        tau = _fit_exponential_positive_points(t[mask], c[mask], maxfev=maxfev)
+        if np.isfinite(tau):
+            return tau
 
     return float("nan")
+
+
+def fit_exponential_semilog_linear_region(
+    time: np.ndarray,
+    corr: np.ndarray,
+    min_points: int = 4,
+    max_log_deviation: float = 0.15,
+    maxfev: int = 100_000,
+) -> float:
+    """Fit an exponential using only the initial semilog-linear portion of the correlation."""
+    t_fit, c_fit = extract_semilog_linear_region(
+        time,
+        corr,
+        min_points=min_points,
+        max_log_deviation=max_log_deviation,
+    )
+    if t_fit.size < 2:
+        return float("nan")
+    return fit_exponential(t_fit, c_fit, min_corr=None, maxfev=maxfev)
 
 
 def fit_plateau_exponential(

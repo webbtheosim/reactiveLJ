@@ -20,6 +20,8 @@ import numpy as np
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+from analysis_utils import extract_semilog_linear_region
+
 
 DEFAULT_TAU_R = 4041.0
 DEFAULT_FIGSIZE = (3.1, 2.0)
@@ -122,28 +124,54 @@ def select_epsilon_dirs(
     return selected
 
 
-def load_bond_correlation(csv_path: Path) -> tuple[np.ndarray, np.ndarray]:
+def load_bond_correlation(csv_path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     data = np.loadtxt(csv_path, delimiter=",", skiprows=1, ndmin=2)
     if data.size == 0:
         raise ValueError(f"No rows found in {csv_path}")
 
     time = np.asarray(data[:, 0], dtype=np.float64)
     mean = np.asarray(data[:, 1], dtype=np.float64)
-    valid = np.isfinite(time) & np.isfinite(mean)
+    stderr = np.asarray(data[:, 2], dtype=np.float64)
+    valid = np.isfinite(time) & np.isfinite(mean) & np.isfinite(stderr)
     time = time[valid]
     mean = mean[valid]
+    stderr = stderr[valid]
     if time.size == 0:
-        raise ValueError(f"No finite time/mean data found in {csv_path}")
-    return time, mean
+        raise ValueError(f"No finite time/mean/stderr data found in {csv_path}")
+    return time, mean, stderr
 
 
-def build_plot_arrays(time_lag: np.ndarray, mean_corr: np.ndarray, tau_r: float) -> tuple[np.ndarray, np.ndarray]:
-    positive = mean_corr > 0.0
-    if not np.any(positive):
+def trim_for_log_plot(
+    time_lag: np.ndarray,
+    mean_corr: np.ndarray,
+    stderr_corr: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    cutoff = np.flatnonzero(
+        (mean_corr <= 0.0) | ((mean_corr - stderr_corr) <= 0.0)
+    )
+    if cutoff.size == 0:
+        return time_lag, mean_corr
+    stop = int(cutoff[0])
+    return time_lag[:stop], mean_corr[:stop]
+
+
+def build_plot_arrays(
+    time_lag: np.ndarray,
+    mean_corr: np.ndarray,
+    stderr_corr: np.ndarray,
+    tau_r: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    time_filtered, mean_filtered = trim_for_log_plot(
+        time_lag, mean_corr, stderr_corr
+    )
+    time_filtered, mean_filtered = extract_semilog_linear_region(
+        time_filtered, mean_filtered
+    )
+    if time_filtered.size == 0 or not np.any(mean_filtered > 0.0):
         raise ValueError("No positive correlation values available for log-scale plotting.")
 
-    x_values = np.concatenate(([0.0], time_lag[positive] / tau_r))
-    y_values = np.concatenate(([1.0], mean_corr[positive]))
+    x_values = np.concatenate(([0.0], time_filtered / tau_r))
+    y_values = np.concatenate(([1.0], mean_filtered))
     return x_values, y_values
 
 
@@ -172,8 +200,12 @@ def main() -> None:
     fig, ax = plt.subplots(figsize=DEFAULT_FIGSIZE, dpi=DEFAULT_DPI)
 
     for color, (epsilon, eps_dir) in zip(colors, selected):
-        time_lag, mean_corr = load_bond_correlation(eps_dir / "bond_correlation.csv")
-        x_values, y_values = build_plot_arrays(time_lag, mean_corr, args.tau_r)
+        time_lag, mean_corr, stderr_corr = load_bond_correlation(
+            eps_dir / "bond_correlation.csv"
+        )
+        x_values, y_values = build_plot_arrays(
+            time_lag, mean_corr, stderr_corr, args.tau_r
+        )
         ax.plot(
             x_values,
             y_values,

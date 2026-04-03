@@ -3,34 +3,62 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, List, Tuple
 
+import freud
+import numba
 import numpy as np
 from scipy.optimize import curve_fit
 
 
+@numba.njit(cache=True)
+def _intersection_size_sorted(a: np.ndarray, b: np.ndarray) -> int:
+    """Count |a ∩ b| exactly for sorted unique int64 arrays."""
+    i = 0
+    j = 0
+    count = 0
+    while i < a.size and j < b.size:
+        a_i = a[i]
+        b_j = b[j]
+        if a_i == b_j:
+            count += 1
+            i += 1
+            j += 1
+        elif a_i < b_j:
+            i += 1
+        else:
+            j += 1
+    return count
+
+
 @dataclass
 class CorrelationAccumulator:
-    """Accumulate correlations using a rolling buffer of sets."""
+    """Accumulate correlations using sorted bond-ID arrays.
+
+    This preserves the exact set-overlap math of the previous set-based
+    implementation while avoiding repeated Python set intersections.
+    """
     max_lag: int
 
     def __post_init__(self) -> None:
         self.numerators = np.zeros(self.max_lag, dtype=np.float64)
         self.denominators = np.zeros(self.max_lag, dtype=np.float64)
-        self._buffer: List[set] = []
+        self._buffer: List[np.ndarray] = []
 
-    def update(self, current_set: set) -> None:
-        # Compare with previous sets in reverse (lag 1 = most recent).
-        for lag, prev_set in enumerate(reversed(self._buffer), start=1):
+    def update(self, current_ids: np.ndarray) -> None:
+        current = np.asarray(current_ids, dtype=np.int64)
+
+        # Compare with previous bond sets in reverse (lag 1 = most recent).
+        for lag, prev_ids in enumerate(reversed(self._buffer), start=1):
             if lag > self.max_lag:
                 break
             idx = lag - 1
-            if prev_set:
-                self.numerators[idx] += len(prev_set & current_set)
-                self.denominators[idx] += len(prev_set)
+            if prev_ids.size > 0:
+                self.numerators[idx] += _intersection_size_sorted(prev_ids, current)
+                self.denominators[idx] += prev_ids.size
 
-        # Push current set into the buffer
-        self._buffer.append(current_set)
+        # Push current bond IDs into the buffer.
+        self._buffer.append(current)
         if len(self._buffer) > self.max_lag:
             self._buffer.pop(0)
 
@@ -40,15 +68,16 @@ class CorrelationAccumulator:
         corr[nonzero] = self.numerators[nonzero] / self.denominators[nonzero]
         return corr
 
+    def valid_length(self) -> int:
+        populated = self.denominators > 0
+        if not np.any(populated):
+            return 0
+        return int(np.max(np.flatnonzero(populated))) + 1
+
 
 def compute_r_thresh(sigma: float = 1.0) -> float:
     """Inflection point of the LJ potential in the two-body limit."""
     return sigma * (26.0 / 7.0) ** (1.0 / 6.0)
-
-
-def minimum_image(dx: np.ndarray, box_length: float) -> np.ndarray:
-    """Apply minimum image convention for a cubic box."""
-    return dx - box_length * np.round(dx / box_length)
 
 
 def reactive_weight(distance: float, inner: float, outer: float) -> float:
@@ -59,39 +88,6 @@ def reactive_weight(distance: float, inner: float, outer: float) -> float:
         return 1.0
     angle = np.pi * (distance - inner) / (outer - inner)
     return 0.5 * (1.0 + np.cos(angle))
-
-
-def build_cell_list(
-    positions: np.ndarray, box_length: float, cutoff: float
-) -> Tuple[List[List[int]], int]:
-    """Build a simple cubic cell list for neighbor searching."""
-    n_cells = max(1, int(box_length / cutoff))
-    cell_size = box_length / n_cells
-
-    frac = (positions + 0.5 * box_length) / cell_size
-    coords = np.floor(frac).astype(np.int32) % n_cells
-    flat = coords[:, 0] + n_cells * (coords[:, 1] + n_cells * coords[:, 2])
-
-    cell_particles: List[List[int]] = [[] for _ in range(n_cells ** 3)]
-    for idx, cell in enumerate(flat):
-        cell_particles[cell].append(idx)
-
-    return cell_particles, n_cells
-
-
-def iter_neighbor_cells(cell_index: int, n_cells: int) -> Iterable[int]:
-    """Yield neighbor cell indices (including self) for a given cell index."""
-    cx = cell_index % n_cells
-    cy = (cell_index // n_cells) % n_cells
-    cz = cell_index // (n_cells * n_cells)
-
-    for dx in (-1, 0, 1):
-        nx = (cx + dx) % n_cells
-        for dy in (-1, 0, 1):
-            ny = (cy + dy) % n_cells
-            for dz in (-1, 0, 1):
-                nz = (cz + dz) % n_cells
-                yield nx + n_cells * (ny + n_cells * nz)
 
 
 def find_sticker_neighbor_pairs(
@@ -107,45 +103,21 @@ def find_sticker_neighbor_pairs(
     if sticker_ids_arr.size < 2 or cutoff <= 0.0:
         return empty_idx, empty_idx.copy(), empty_dist
 
-    sticker_positions = positions[sticker_ids_arr]
-    cell_particles, n_cells = build_cell_list(sticker_positions, box_length, cutoff)
-    cutoff_sq = cutoff * cutoff
+    sticker_positions = np.asarray(positions[sticker_ids_arr], dtype=np.float32)
+    query = freud.locality.AABBQuery(freud.box.Box.cube(box_length), sticker_positions)
+    nlist = query.query(
+        sticker_positions,
+        dict(mode="ball", r_max=float(cutoff), exclude_ii=True),
+    ).toNeighborList()
 
-    pair_i: List[int] = []
-    pair_j: List[int] = []
-    pair_dist: List[float] = []
-
-    for cell_index, particle_list in enumerate(cell_particles):
-        if not particle_list:
-            continue
-
-        for neighbor_cell in iter_neighbor_cells(cell_index, n_cells):
-            if neighbor_cell < cell_index:
-                continue
-            neighbor_list = cell_particles[neighbor_cell]
-            if not neighbor_list:
-                continue
-
-            for i_idx in particle_list:
-                for j_idx in neighbor_list:
-                    if neighbor_cell == cell_index and j_idx <= i_idx:
-                        continue
-
-                    dx = sticker_positions[i_idx] - sticker_positions[j_idx]
-                    dx = minimum_image(dx, box_length)
-                    dist_sq = float(np.dot(dx, dx))
-                    if dist_sq < cutoff_sq:
-                        pair_i.append(i_idx)
-                        pair_j.append(j_idx)
-                        pair_dist.append(np.sqrt(dist_sq))
-
-    if not pair_i:
+    mask = nlist.query_point_indices < nlist.point_indices
+    if not np.any(mask):
         return empty_idx, empty_idx.copy(), empty_dist
 
     return (
-        np.asarray(pair_i, dtype=np.int32),
-        np.asarray(pair_j, dtype=np.int32),
-        np.asarray(pair_dist, dtype=np.float64),
+        np.asarray(nlist.query_point_indices[mask], dtype=np.int32),
+        np.asarray(nlist.point_indices[mask], dtype=np.int32),
+        np.asarray(nlist.distances[mask], dtype=np.float64),
     )
 
 
@@ -195,9 +167,8 @@ class UnionFind:
         self.size[root_a] += self.size[root_b]
 
     def cluster_sizes(self) -> np.ndarray:
-        roots = np.array([self.find(i) for i in range(len(self.parent))], dtype=np.int32)
-        unique, counts = np.unique(roots, return_counts=True)
-        return counts
+        root_mask = self.parent == np.arange(self.parent.size, dtype=np.int32)
+        return self.size[root_mask]
 
 
 def autocorr_fft(
@@ -368,13 +339,91 @@ def _exp_decay(time: np.ndarray, tau: float) -> np.ndarray:
     return np.exp(-time / tau)
 
 
+def _fit_exponential_positive_points(
+    time: np.ndarray,
+    corr: np.ndarray,
+    maxfev: int = 100_000,
+) -> float:
+    """Fit corr ~ exp(-t/tau) using all finite positive points provided."""
+    n = min(len(time), len(corr))
+    if n < 2:
+        return float("nan")
+
+    t = np.asarray(time[:n], dtype=np.float64)
+    c = np.asarray(corr[:n], dtype=np.float64)
+    mask = np.isfinite(t) & np.isfinite(c) & (c > 0.0)
+    if np.count_nonzero(mask) < 2:
+        return float("nan")
+
+    t_fit = t[mask]
+    c_fit = c[mask]
+    slope, _ = np.polyfit(t_fit, np.log(c_fit), 1)
+    tau0 = -1.0 / slope if np.isfinite(slope) and slope < 0.0 else max(t_fit[0], 1.0)
+    tau0 = max(tau0, 1e-12)
+
+    try:
+        params, _ = curve_fit(
+            _exp_decay,
+            t_fit,
+            c_fit,
+            p0=(tau0,),
+            bounds=(1e-12, np.inf),
+            maxfev=maxfev,
+        )
+        tau = float(params[0])
+        if np.isfinite(tau) and tau > 0.0:
+            return tau
+    except (RuntimeError, ValueError):
+        pass
+
+    if np.isfinite(slope) and slope < 0.0:
+        return -1.0 / slope
+    return float("nan")
+
+
+def extract_semilog_linear_region(
+    time: np.ndarray,
+    corr: np.ndarray,
+    min_points: int = 4,
+    max_log_deviation: float = 0.15,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Return the longest initial prefix that stays approximately linear on a semilog plot."""
+    n = min(len(time), len(corr))
+    if n < 2:
+        return np.empty((0,), dtype=np.float64), np.empty((0,), dtype=np.float64)
+
+    t = np.asarray(time[:n], dtype=np.float64)
+    c = np.asarray(corr[:n], dtype=np.float64)
+    finite_positive = np.isfinite(t) & np.isfinite(c) & (c > 0.0)
+    if np.count_nonzero(finite_positive) < 2:
+        return np.empty((0,), dtype=np.float64), np.empty((0,), dtype=np.float64)
+
+    t = t[finite_positive]
+    c = c[finite_positive]
+    if t.size <= 2:
+        return t, c
+
+    fit_count = min(max(2, int(min_points)), t.size)
+    log_c = np.log(c)
+    prefix_stop = fit_count
+    for stop in range(fit_count, t.size + 1):
+        slope, intercept = np.polyfit(t[:stop], log_c[:stop], 1)
+        fitted_log_c = slope * t[:stop] + intercept
+        if np.max(np.abs(log_c[:stop] - fitted_log_c)) <= max_log_deviation:
+            prefix_stop = stop
+        else:
+            break
+
+    return t[:prefix_stop], c[:prefix_stop]
+
+
 def fit_exponential(
     time: np.ndarray,
     corr: np.ndarray,
-    min_corr: float = 0.1,
+    min_corr: float | None = 0.1,
     maxfev: int = 100_000,
 ) -> float:
-    """Fit corr ~ exp(-t/tau) with robust fallbacks for fast decays."""
+    """Fit corr ~ exp(-t/tau), optionally excluding low-correlation points."""
     n = min(len(time), len(corr))
     if n < 2:
         return float("nan")
@@ -385,40 +434,39 @@ def fit_exponential(
     if np.count_nonzero(finite_positive) < 2:
         return float("nan")
 
+    if min_corr is None or min_corr <= 0.0:
+        return _fit_exponential_positive_points(t, c, maxfev=maxfev)
+
     threshold_candidates = [min_corr, 0.05, 0.02, 0.01, 0.005, 0.001]
     for threshold in threshold_candidates:
         mask = finite_positive & (c > threshold)
         if np.count_nonzero(mask) < 2:
             continue
 
-        t_fit = t[mask]
-        c_fit = c[mask]
-
-        # Seed tau from a log-linear slope when possible.
-        slope, _ = np.polyfit(t_fit, np.log(c_fit), 1)
-        tau0 = -1.0 / slope if np.isfinite(slope) and slope < 0.0 else max(t_fit[0], 1.0)
-        tau0 = max(tau0, 1e-12)
-
-        try:
-            params, _ = curve_fit(
-                _exp_decay,
-                t_fit,
-                c_fit,
-                p0=(tau0,),
-                bounds=(1e-12, np.inf),
-                maxfev=maxfev,
-            )
-            tau = float(params[0])
-            if np.isfinite(tau) and tau > 0.0:
-                return tau
-        except (RuntimeError, ValueError):
-            pass
-
-        # Fallback to log-linear fit if nonlinear fit did not converge.
-        if np.isfinite(slope) and slope < 0.0:
-            return -1.0 / slope
+        tau = _fit_exponential_positive_points(t[mask], c[mask], maxfev=maxfev)
+        if np.isfinite(tau):
+            return tau
 
     return float("nan")
+
+
+def fit_exponential_semilog_linear_region(
+    time: np.ndarray,
+    corr: np.ndarray,
+    min_points: int = 4,
+    max_log_deviation: float = 0.15,
+    maxfev: int = 100_000,
+) -> float:
+    """Fit an exponential using only the initial semilog-linear portion of the correlation."""
+    t_fit, c_fit = extract_semilog_linear_region(
+        time,
+        corr,
+        min_points=min_points,
+        max_log_deviation=max_log_deviation,
+    )
+    if t_fit.size < 2:
+        return float("nan")
+    return fit_exponential(t_fit, c_fit, min_corr=None, maxfev=maxfev)
 
 
 def fit_plateau_exponential(

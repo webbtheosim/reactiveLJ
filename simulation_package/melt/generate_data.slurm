@@ -5,13 +5,13 @@
 #SBATCH --time=23:59:00
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=2G
-#SBATCH --array=0-39%20
+#SBATCH --array=0-49%24
 #SBATCH --output=logs/generate_data_%A_%a.out
 
 # NOTE:
-# - This script assumes 4 epsilon values and 10 replicates each (40 total tasks).
-# - If you change N_REP below, update the --array range accordingly.
-# Set 0-39 to run all replicates.
+# - This script assumes 5 epsilon values and 10 replicates each (50 total tasks).
+# - If you change EPSILONS or N_REP below, update the --array range accordingly.
+# Set 0-49 to run all replicates.
 
 module purge
 source ~/.bashrc
@@ -29,17 +29,18 @@ WORK_DIR="$(cd "${WORK_DIR}" && pwd)"
 cd "${WORK_DIR}"
 mkdir -p logs
 
-EPSILONS=(6 12 15 18)
+EPSILONS=(0 6 12 15 18)
 N_REP=${N_REP:-10}
 TOTAL=$(( ${#EPSILONS[@]} * N_REP ))
 
 # Optional overrides (set as environment variables before submission).
-FRAME_STEPS=${FRAME_STEPS:-10000}
+FRAME_STEPS=${FRAME_STEPS:-100000}
 UNSTICKY_EQ_STEPS=${UNSTICKY_EQ_STEPS:-100000}
 REACTIVE_EQ_STEPS=${REACTIVE_EQ_STEPS:-1000000}
 PRODUCTION_TAU_R0=${PRODUCTION_TAU_R0:-250}
 VIRIAL_LOG_STEPS=${VIRIAL_LOG_STEPS:-1000}
 WEAKENING_EXPONENT=${WEAKENING_EXPONENT:-4}
+MSD_PARTICLES=${MSD_PARTICLES:-2000}
 
 TASK_ID=${SLURM_ARRAY_TASK_ID}
 if [[ ${TASK_ID} -ge ${TOTAL} ]]; then
@@ -58,6 +59,7 @@ python "${WORK_DIR}/data_generation/run_reactive_lj.py" \
     --output-root "${WORK_DIR}/data_generation/outputs" \
     --weakening-exponent "${WEAKENING_EXPONENT}" \
     --frame-steps "${FRAME_STEPS}" \
+    --msd-particles "${MSD_PARTICLES}" \
     --virial-log-steps "${VIRIAL_LOG_STEPS}" \
     --unsticky-equil-steps "${UNSTICKY_EQ_STEPS}" \
     --reactive-equil-steps "${REACTIVE_EQ_STEPS}" \

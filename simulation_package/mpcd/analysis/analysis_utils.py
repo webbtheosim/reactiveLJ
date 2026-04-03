@@ -7,6 +7,7 @@ from typing import Dict, Iterable, List, Tuple
 
 import numpy as np
 from scipy.optimize import curve_fit
+from scipy.spatial import cKDTree
 
 
 @dataclass
@@ -102,35 +103,87 @@ def find_sticker_bonds(
 ) -> set:
     """Identify sticker-sticker bonds based on a distance threshold."""
     sticker_positions = positions[sticker_ids]
-    cell_particles, n_cells = build_cell_list(sticker_positions, box_length, cutoff)
-    cutoff_sq = cutoff * cutoff
+    i_idx, j_idx, _ = compute_sticker_neighbor_pairs(
+        sticker_positions, box_length, cutoff
+    )
+    if i_idx.size == 0:
+        return set()
 
-    bonds: set = set()
-
-    for cell_index, particle_list in enumerate(cell_particles):
-        if not particle_list:
-            continue
-
-        for neighbor_cell in iter_neighbor_cells(cell_index, n_cells):
-            if neighbor_cell < cell_index:
-                continue
-            neighbor_list = cell_particles[neighbor_cell]
-            if not neighbor_list:
-                continue
-
-            for i_idx in particle_list:
-                for j_idx in neighbor_list:
-                    if neighbor_cell == cell_index and j_idx <= i_idx:
-                        continue
-
-                    dx = sticker_positions[i_idx] - sticker_positions[j_idx]
-                    dx = minimum_image(dx, box_length)
-                    if np.dot(dx, dx) < cutoff_sq:
-                        i_global = int(sticker_ids[i_idx])
-                        j_global = int(sticker_ids[j_idx])
-                        bonds.add((i_global, j_global) if i_global < j_global else (j_global, i_global))
-
+    i_global = sticker_ids[i_idx].astype(np.int64, copy=False)
+    j_global = sticker_ids[j_idx].astype(np.int64, copy=False)
+    bonds = set()
+    for i_tag, j_tag in zip(i_global.tolist(), j_global.tolist()):
+        bonds.add((i_tag, j_tag))
     return bonds
+
+
+def compute_sticker_neighbor_pairs(
+    sticker_positions: np.ndarray, box_length: float, cutoff: float
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return unique sticker pairs and distances under PBC within ``cutoff``."""
+    n_stickers = sticker_positions.shape[0]
+    if n_stickers < 2:
+        empty_i = np.empty((0,), dtype=np.int64)
+        empty_d = np.empty((0,), dtype=np.float64)
+        return empty_i, empty_i.copy(), empty_d
+
+    wrapped = np.mod(np.asarray(sticker_positions, dtype=np.float64) + 0.5 * box_length, box_length)
+    tree = cKDTree(wrapped, boxsize=box_length)
+    pairs = tree.query_pairs(cutoff, output_type="ndarray")
+    if pairs.size == 0:
+        empty_i = np.empty((0,), dtype=np.int64)
+        empty_d = np.empty((0,), dtype=np.float64)
+        return empty_i, empty_i.copy(), empty_d
+
+    i_idx = pairs[:, 0].astype(np.int64, copy=False)
+    j_idx = pairs[:, 1].astype(np.int64, copy=False)
+    dx = wrapped[i_idx] - wrapped[j_idx]
+    dx = minimum_image(dx, box_length)
+    dist_sq = np.einsum("ij,ij->i", dx, dx, dtype=np.float64)
+    dist = np.sqrt(dist_sq)
+    return i_idx, j_idx, dist
+
+
+def compute_cexc_mean_from_neighbor_pairs(
+    i_idx: np.ndarray,
+    j_idx: np.ndarray,
+    dist: np.ndarray,
+    n_stickers: int,
+    r_cut: float,
+    weakening_inner: float,
+    weakening_outer: float,
+    smooth_eps: float = 1e-6,
+) -> float:
+    """Compute mean C_exc from a precomputed periodic neighbor list."""
+    if n_stickers < 2 or i_idx.size == 0:
+        return float("nan")
+
+    coordination = np.zeros(n_stickers, dtype=np.float64)
+    w_ij = np.zeros_like(dist, dtype=np.float64)
+    mask_inner = dist <= weakening_inner
+    mask_outer = (dist > weakening_inner) & (dist < weakening_outer)
+    if np.any(mask_inner):
+        w_ij[mask_inner] = 1.0
+    if np.any(mask_outer):
+        angle = np.pi * (dist[mask_outer] - weakening_inner) / (
+            weakening_outer - weakening_inner
+        )
+        w_ij[mask_outer] = 0.5 * (1.0 + np.cos(angle))
+
+    if np.any(w_ij):
+        np.add.at(coordination, i_idx, w_ij)
+        np.add.at(coordination, j_idx, w_ij)
+
+    mask_cut = dist < r_cut
+    if not np.any(mask_cut):
+        return float("nan")
+
+    i_cut = i_idx[mask_cut]
+    j_cut = j_idx[mask_cut]
+    w_cut = w_ij[mask_cut]
+    raw = (coordination[i_cut] - w_cut) + (coordination[j_cut] - w_cut)
+    cexc_vals = 0.5 * (raw + np.sqrt(raw * raw + smooth_eps * smooth_eps))
+    return float(np.mean(cexc_vals))
 
 
 class UnionFind:
@@ -186,17 +239,141 @@ def autocorr_fft(series: np.ndarray, subtract_mean: bool = True) -> np.ndarray:
     return acf
 
 
+def multitau_autocovariance(
+    series: np.ndarray, p: int = 16, m: int = 2, S: int = 40
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Compute multi-tau autocovariance on a logarithmic lag grid."""
+    if p % m != 0:
+        raise ValueError("p must be divisible by m")
+
+    x = np.asarray(series, dtype=np.float64)
+    if x.ndim != 1:
+        raise ValueError("series must be 1D")
+    if x.size == 0:
+        return np.array([], dtype=np.float64), np.array([], dtype=np.float64)
+
+    p_m = p // m
+    lags: List[float] = []
+    cov: List[float] = []
+
+    level_data = x.copy()
+    lag_scale = 1
+
+    for level in range(S):
+        n_level = level_data.size
+        if n_level == 0:
+            break
+
+        j_start = 0 if level == 0 else p_m
+        j_stop = min(p, n_level)
+        for j in range(j_start, j_stop):
+            span = n_level - j
+            cov_ij = float(np.dot(level_data[:span], level_data[j:]) / span)
+            lags.append(float(j * lag_scale))
+            cov.append(cov_ij)
+
+        if level == S - 1:
+            break
+
+        n_next = n_level // m
+        if n_next == 0:
+            break
+        trimmed = level_data[: n_next * m]
+        level_data = np.mean(trimmed.reshape(n_next, m), axis=1)
+        lag_scale *= m
+
+    return np.asarray(lags, dtype=np.float64), np.asarray(cov, dtype=np.float64)
+
+
 def _exp_decay(time: np.ndarray, tau: float) -> np.ndarray:
     return np.exp(-time / tau)
+
+
+def _fit_exponential_positive_points(
+    time: np.ndarray,
+    corr: np.ndarray,
+    maxfev: int = 100_000,
+) -> float:
+    """Fit corr ~ exp(-t/tau) using all finite positive points provided."""
+    n = min(len(time), len(corr))
+    if n < 2:
+        return float("nan")
+
+    t = np.asarray(time[:n], dtype=np.float64)
+    c = np.asarray(corr[:n], dtype=np.float64)
+    mask = np.isfinite(t) & np.isfinite(c) & (c > 0.0)
+    if np.count_nonzero(mask) < 2:
+        return float("nan")
+
+    t_fit = t[mask]
+    c_fit = c[mask]
+    slope, _ = np.polyfit(t_fit, np.log(c_fit), 1)
+    tau0 = -1.0 / slope if np.isfinite(slope) and slope < 0.0 else max(t_fit[0], 1.0)
+    tau0 = max(tau0, 1e-12)
+
+    try:
+        params, _ = curve_fit(
+            _exp_decay,
+            t_fit,
+            c_fit,
+            p0=(tau0,),
+            bounds=(1e-12, np.inf),
+            maxfev=maxfev,
+        )
+        tau = float(params[0])
+        if np.isfinite(tau) and tau > 0.0:
+            return tau
+    except (RuntimeError, ValueError):
+        pass
+
+    if np.isfinite(slope) and slope < 0.0:
+        return -1.0 / slope
+    return float("nan")
+
+
+def extract_semilog_linear_region(
+    time: np.ndarray,
+    corr: np.ndarray,
+    min_points: int = 4,
+    max_log_deviation: float = 0.15,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Return the longest initial prefix that stays approximately linear on a semilog plot."""
+    n = min(len(time), len(corr))
+    if n < 2:
+        return np.empty((0,), dtype=np.float64), np.empty((0,), dtype=np.float64)
+
+    t = np.asarray(time[:n], dtype=np.float64)
+    c = np.asarray(corr[:n], dtype=np.float64)
+    finite_positive = np.isfinite(t) & np.isfinite(c) & (c > 0.0)
+    if np.count_nonzero(finite_positive) < 2:
+        return np.empty((0,), dtype=np.float64), np.empty((0,), dtype=np.float64)
+
+    t = t[finite_positive]
+    c = c[finite_positive]
+    if t.size <= 2:
+        return t, c
+
+    fit_count = min(max(2, int(min_points)), t.size)
+    log_c = np.log(c)
+    prefix_stop = fit_count
+    for stop in range(fit_count, t.size + 1):
+        slope, intercept = np.polyfit(t[:stop], log_c[:stop], 1)
+        fitted_log_c = slope * t[:stop] + intercept
+        if np.max(np.abs(log_c[:stop] - fitted_log_c)) <= max_log_deviation:
+            prefix_stop = stop
+        else:
+            break
+
+    return t[:prefix_stop], c[:prefix_stop]
 
 
 def fit_exponential(
     time: np.ndarray,
     corr: np.ndarray,
-    min_corr: float = 0.1,
+    min_corr: float | None = 0.1,
     maxfev: int = 100_000,
 ) -> float:
-    """Fit corr ~ exp(-t/tau) with robust fallbacks for fast decays."""
+    """Fit corr ~ exp(-t/tau), optionally excluding low-correlation points."""
     n = min(len(time), len(corr))
     if n < 2:
         return float("nan")
@@ -207,40 +384,39 @@ def fit_exponential(
     if np.count_nonzero(finite_positive) < 2:
         return float("nan")
 
+    if min_corr is None or min_corr <= 0.0:
+        return _fit_exponential_positive_points(t, c, maxfev=maxfev)
+
     threshold_candidates = [min_corr, 0.05, 0.02, 0.01, 0.005, 0.001]
     for threshold in threshold_candidates:
         mask = finite_positive & (c > threshold)
         if np.count_nonzero(mask) < 2:
             continue
 
-        t_fit = t[mask]
-        c_fit = c[mask]
-
-        # Seed tau from a log-linear slope when possible.
-        slope, _ = np.polyfit(t_fit, np.log(c_fit), 1)
-        tau0 = -1.0 / slope if np.isfinite(slope) and slope < 0.0 else max(t_fit[0], 1.0)
-        tau0 = max(tau0, 1e-12)
-
-        try:
-            params, _ = curve_fit(
-                _exp_decay,
-                t_fit,
-                c_fit,
-                p0=(tau0,),
-                bounds=(1e-12, np.inf),
-                maxfev=maxfev,
-            )
-            tau = float(params[0])
-            if np.isfinite(tau) and tau > 0.0:
-                return tau
-        except (RuntimeError, ValueError):
-            pass
-
-        # Fallback to log-linear fit if nonlinear fit did not converge.
-        if np.isfinite(slope) and slope < 0.0:
-            return -1.0 / slope
+        tau = _fit_exponential_positive_points(t[mask], c[mask], maxfev=maxfev)
+        if np.isfinite(tau):
+            return tau
 
     return float("nan")
+
+
+def fit_exponential_semilog_linear_region(
+    time: np.ndarray,
+    corr: np.ndarray,
+    min_points: int = 4,
+    max_log_deviation: float = 0.15,
+    maxfev: int = 100_000,
+) -> float:
+    """Fit an exponential using only the initial semilog-linear portion of the correlation."""
+    t_fit, c_fit = extract_semilog_linear_region(
+        time,
+        corr,
+        min_points=min_points,
+        max_log_deviation=max_log_deviation,
+    )
+    if t_fit.size < 2:
+        return float("nan")
+    return fit_exponential(t_fit, c_fit, min_corr=None, maxfev=maxfev)
 
 
 def fit_plateau_exponential(

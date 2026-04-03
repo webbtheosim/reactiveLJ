@@ -2,16 +2,16 @@
 #SBATCH --job-name=reactiveLJ_mpcd_gen
 #SBATCH --partition=gpu
 #SBATCH --gres=gpu:1
-#SBATCH --time=01:02:00
+#SBATCH --time=23:59:00
 #SBATCH --cpus-per-task=1
-#SBATCH --mem=1G
-#SBATCH --array=0-59%24
+#SBATCH --mem=2G
+#SBATCH --array=0-49%24
 #SBATCH --output=logs/generate_data_%A_%a.out
 
 # NOTE:
-# - This script assumes 6 epsilon values and 10 replicates each (60 total tasks).
+# - This script assumes 5 epsilon values and 10 replicates each (50 total tasks).
 # - If you change N_REP below, update the --array range accordingly.
-# Set 0-59 to run all replicates.
+# Set 0-49 to run all replicates.
 
 module purge
 source ~/.bashrc
@@ -29,7 +29,7 @@ WORK_DIR="$(cd "${WORK_DIR}" && pwd)"
 cd "${WORK_DIR}"
 mkdir -p logs
 
-EPSILONS=(3 6 9 12 15 18)
+EPSILONS=(0 6 12 15 18)
 N_REP=${N_REP:-10}
 TOTAL=$(( ${#EPSILONS[@]} * N_REP ))
 
@@ -37,7 +37,8 @@ TOTAL=$(( ${#EPSILONS[@]} * N_REP ))
 FRAME_STEPS=${FRAME_STEPS:-10000}
 UNSTICKY_EQ_STEPS=${UNSTICKY_EQ_STEPS:-100000}
 REACTIVE_EQ_STEPS=${REACTIVE_EQ_STEPS:-1000000}
-PROD_STEPS=${PROD_STEPS:-1000000}
+PRODUCTION_TAU_R0=${PRODUCTION_TAU_R0:-250}
+VIRIAL_LOG_STEPS=${VIRIAL_LOG_STEPS:-1000}
 WEAKENING_EXPONENT=${WEAKENING_EXPONENT:-4}
 POLYMER_WEIGHT_FRACTION=${POLYMER_WEIGHT_FRACTION:-0.02}
 MPCD_NUMBER_DENSITY=${MPCD_NUMBER_DENSITY:-5.0}
@@ -63,6 +64,7 @@ python "${WORK_DIR}/data_generation/run_reactive_lj.py" \
     --mpcd-number-density "${MPCD_NUMBER_DENSITY}" \
     --collision-period "${COLLISION_PERIOD}" \
     --frame-steps "${FRAME_STEPS}" \
+    --virial-log-steps "${VIRIAL_LOG_STEPS}" \
     --unsticky-equil-steps "${UNSTICKY_EQ_STEPS}" \
     --reactive-equil-steps "${REACTIVE_EQ_STEPS}" \
-    --production-steps "${PROD_STEPS}"
+    --production-runtime-tau-r0 "${PRODUCTION_TAU_R0}"

@@ -8,6 +8,7 @@ This follows Liu and O'Connor 2024 Figure 2b:
 The script reuses the existing ReactiveLJ bond/open-state definitions from the
 main melt analysis and measures both quantities for multiple effective dump
 intervals by subsampling the stored trajectory frames with integer strides.
+Physical lag times are derived directly from the stored GSD frame step numbers.
 """
 
 from __future__ import annotations
@@ -44,6 +45,7 @@ sys.path.append(os.path.dirname(__file__))
 from analysis_utils import (
     compute_r_thresh,
     fit_exponential,
+    fit_exponential_semilog_linear_region,
 )
 
 
@@ -56,15 +58,6 @@ DEFAULT_DPI = 1000
 DEFAULT_TICK_FONTSIZE = 8
 DEFAULT_LABEL_FONTSIZE = 10
 DEFAULT_LEGEND_FONTSIZE = 8
-
-_BOND_TAU_FIT_WINDOWS = {
-    3.0: (0.0, 400.0),
-    6.0: (0.0, 600.0),
-    9.0: (0.0, 1500.0),
-    12.0: (0.0, 2500.0),
-    15.0: (0.0, 2500.0),
-    18.0: (0.0, 2500.0),
-}
 
 
 @dataclass(frozen=True)
@@ -125,7 +118,7 @@ def parse_args() -> argparse.Namespace:
         default=list(DEFAULT_STRIDES),
         help=(
             "Integer frame strides used to emulate coarser dump intervals. "
-            "The physical dump interval is stride * dt * frame_steps."
+            "The physical dump interval is inferred from GSD frame step numbers."
         ),
     )
     parser.add_argument(
@@ -150,30 +143,6 @@ def parse_epsilon(path: Path) -> float | None:
         return float(path.name.split("_", maxsplit=1)[1])
     except ValueError:
         return None
-
-
-def get_bond_tau_fit_window(epsilon: float) -> tuple[float, float] | None:
-    for key, window in _BOND_TAU_FIT_WINDOWS.items():
-        if abs(epsilon - key) < 1.0e-12:
-            return window
-    return None
-
-
-def fit_exponential_with_time_window(
-    time: np.ndarray,
-    corr: np.ndarray,
-    fit_window: tuple[float, float] | None,
-) -> float:
-    if fit_window is None:
-        return fit_exponential(time, corr)
-    t_min, t_max = fit_window
-    mask = np.isfinite(time) & (time >= t_min) & (time <= t_max)
-    if np.count_nonzero(mask) < 2:
-        return fit_exponential(time, corr)
-    tau = fit_exponential(time[mask], corr[mask])
-    if np.isfinite(tau):
-        return tau
-    return fit_exponential(time, corr)
 
 
 def discover_runs(input_root: Path, requested_epsilons: Iterable[float]) -> list[RunEntry]:
@@ -224,6 +193,50 @@ def mean_and_stderr(values: list[float]) -> tuple[float, float]:
     mean = float(np.mean(arr))
     stderr = float(np.std(arr, ddof=1) / np.sqrt(arr.size)) if arr.size > 1 else 0.0
     return mean, stderr
+
+
+def infer_dump_interval_tau_lj(
+    sampled_steps: np.ndarray,
+    dt: float,
+) -> float:
+    if sampled_steps.size < 2:
+        raise RuntimeError("Need at least two sampled frames to infer dump interval.")
+    step_diffs = np.diff(sampled_steps.astype(np.float64, copy=False))
+    positive = step_diffs[step_diffs > 0.0]
+    if positive.size == 0:
+        raise RuntimeError("Sampled GSD frames do not have increasing step numbers.")
+    return float(np.mean(positive) * dt)
+
+
+def build_lag_time_axis(
+    sampled_steps: np.ndarray,
+    dt: float,
+    lag_count: int,
+) -> np.ndarray:
+    if lag_count <= 0:
+        return np.empty((0,), dtype=np.float64)
+    if sampled_steps.size < 2:
+        raise RuntimeError("Need at least two sampled frames to build a lag-time axis.")
+
+    sampled_steps_f = sampled_steps.astype(np.float64, copy=False)
+    first_diffs = np.diff(sampled_steps_f)
+    positive = first_diffs[first_diffs > 0.0]
+    if positive.size == 0:
+        raise RuntimeError("Sampled GSD frames do not have increasing step numbers.")
+
+    if np.allclose(positive, positive[0], rtol=0.0, atol=1.0e-12):
+        return np.arange(1, lag_count + 1, dtype=np.float64) * float(positive[0] * dt)
+
+    lag_times = np.empty(lag_count, dtype=np.float64)
+    for lag in range(1, lag_count + 1):
+        lag_step = sampled_steps_f[lag:] - sampled_steps_f[:-lag]
+        positive_lag = lag_step[lag_step > 0.0]
+        if positive_lag.size == 0:
+            raise RuntimeError(
+                "Sampled GSD frames do not have increasing step numbers at one or more lags."
+            )
+        lag_times[lag - 1] = float(np.mean(positive_lag) * dt)
+    return lag_times
 
 
 def pack_open_mask(mask: np.ndarray) -> np.ndarray:
@@ -399,7 +412,16 @@ def analyze_run(entry: RunEntry, strides: list[int], max_lag_frames: int) -> lis
         if "sticky" not in type_names:
             raise RuntimeError(f"Sticker type 'sticky' not found in {entry.gsd_path}")
         sticker_type = type_names.index("sticky")
-        sticker_ids = np.where(first.particles.typeid == sticker_type)[0]
+        trajectory_subset = str(metadata.get("trajectory_particle_subset", ""))
+        if trajectory_subset == "sticky_only":
+            typeid = np.asarray(first.particles.typeid, dtype=np.int32)
+            if not np.all(typeid == sticker_type):
+                raise RuntimeError(
+                    f"Sticker-only trajectory {entry.gsd_path} contains non-sticky particles."
+                )
+            sticker_ids = np.arange(first.particles.N, dtype=np.int32)
+        else:
+            sticker_ids = np.where(first.particles.typeid == sticker_type)[0]
         n_stickers = int(sticker_ids.size)
         if n_stickers == 0:
             raise RuntimeError(f"No stickers found in {entry.gsd_path}")
@@ -408,15 +430,13 @@ def analyze_run(entry: RunEntry, strides: list[int], max_lag_frames: int) -> lis
         reactive_sigma = float(metadata.get("reactive_sigma", 1.0))
         r_thresh = compute_r_thresh(reactive_sigma)
         epsilon = float(metadata.get("reactive_epsilon", entry.epsilon))
-        frame_dt_base = float(metadata.get("dt", 0.005)) * float(
-            metadata.get("frame_steps", 10_000)
-        )
-        fit_window = get_bond_tau_fit_window(epsilon)
+        dt = float(metadata.get("dt", 0.005))
         n_open_words = (n_stickers + 63) // 64
         open_bitsets = np.zeros((n_frames, n_open_words), dtype=np.uint64)
         open_counts = np.zeros(n_frames, dtype=np.int32)
         bond_chunks: list[np.ndarray] = []
         bond_offsets = np.zeros(n_frames + 1, dtype=np.int64)
+        frame_step_numbers = np.zeros(n_frames, dtype=np.int64)
 
         for frame_idx, frame in enumerate(traj):
             positions = frame.particles.position
@@ -431,6 +451,7 @@ def analyze_run(entry: RunEntry, strides: list[int], max_lag_frames: int) -> lis
             bond_offsets[frame_idx + 1] = bond_offsets[frame_idx] + bond_ids.size
             open_bitsets[frame_idx] = open_bitset
             open_counts[frame_idx] = open_count
+            frame_step_numbers[frame_idx] = int(frame.configuration.step)
 
     if bond_offsets[-1] > 0:
         bonds_flat = np.ascontiguousarray(np.concatenate(bond_chunks))
@@ -443,6 +464,7 @@ def analyze_run(entry: RunEntry, strides: list[int], max_lag_frames: int) -> lis
         lag_count = min(max_lag_frames, sample_indices.size - 1)
         if lag_count < 2:
             continue
+        sampled_steps = frame_step_numbers[sample_indices]
 
         cs = compute_bond_correlation(
             bonds_flat,
@@ -456,11 +478,16 @@ def analyze_run(entry: RunEntry, strides: list[int], max_lag_frames: int) -> lis
             sample_indices,
             max_lag_frames,
         )
-        frame_dt = frame_dt_base * float(stride)
-        cs_time = np.arange(1, len(cs) + 1, dtype=np.float64) * frame_dt
-        cb_time = np.arange(1, len(cb) + 1, dtype=np.float64) * frame_dt
-        tau_s = fit_exponential_with_time_window(cs_time, cs, fit_window)
-        tau_b = fit_exponential(cb_time, cb)
+        frame_dt = infer_dump_interval_tau_lj(sampled_steps, dt)
+        lag_time = build_lag_time_axis(
+            sampled_steps,
+            dt,
+            lag_count,
+        )
+        cs_time = lag_time[: len(cs)]
+        cb_time = lag_time[: len(cb)]
+        tau_s = fit_exponential_semilog_linear_region(cs_time, cs)
+        tau_b = fit_exponential_semilog_linear_region(cb_time, cb)
         rows.append(
             {
                 "epsilon": epsilon,

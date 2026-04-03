@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=reactiveLJ_analysis
 #SBATCH --time=06:00:00
-#SBATCH --cpus-per-task=16
+#SBATCH --cpus-per-task=64
 #SBATCH --mem=64G
 #SBATCH --nodes=1
 #SBATCH --output=logs/run_analysis_%j.out
@@ -42,7 +42,11 @@ ANALYSIS_START_TS=$(date +%s)
 python -u "${WORK_DIR}/analysis/analyze_trajectories.py" \
     --input-root "${WORK_DIR}/data_generation/outputs" \
     --output-dir "${WORK_DIR}/analysis/results" \
-    --max-lag-frames 500000
+    --analysis-stride 1 \
+    --max-lag-frames 500000 \
+    --analyses msd stress_modulus \
+    --stress-max-runtime-fraction 0.5
+
 ANALYSIS_END_TS=$(date +%s)
 log "Step 7/8 complete: Analysis finished in $((ANALYSIS_END_TS - ANALYSIS_START_TS)) seconds"
 

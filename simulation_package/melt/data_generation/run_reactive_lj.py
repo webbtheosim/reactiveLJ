@@ -2,9 +2,9 @@
 
 This script builds a KG melt (random-walk with rejection sampling), performs an
 unsticky melt equilibration, assigns sticker identities, turns on the ReactiveLJ
-interaction, equilibrates
-again, and finally runs production while writing trajectory frames to GSD plus
-a separate high-frequency virial-tensor log.
+interaction, equilibrates again, and finally runs production while writing a
+sticker-only structural trajectory, a separate sampled MSD trajectory, and a
+high-frequency virial-tensor log.
 
 When ``reactive_epsilon <= 0``, the workflow automatically falls back to pure
 WCA sticker-sticker interactions (no ReactiveLJ force). In that mode, sticky
@@ -23,6 +23,8 @@ import sys
 import time
 from dataclasses import asdict, dataclass
 
+import cupy as cp
+import numba
 import numpy as np
 
 import hoomd
@@ -32,16 +34,13 @@ SIM_PACKAGE_DIR = os.path.dirname(SCRIPT_DIR)
 if SIM_PACKAGE_DIR not in sys.path:
     sys.path.insert(0, SIM_PACKAGE_DIR)
 
-try:
-    import numba
-except Exception as exc:  # pragma: no cover - required dependency
-    raise RuntimeError("numba is required to run ReactiveLJ data generation.") from exc
-
-
 DEFAULT_TAU_R0 = 4041.0
 DEFAULT_TARGET_PRODUCTION_TAU_R0 = 10.0
 DEFAULT_VIRIAL_LOG_STEPS = 1000
 DEFAULT_REACTIVE_DT_RAMP_STEPS = 100_000
+DEFAULT_FRAME_STEPS = 100_000
+DEFAULT_MSD_PARTICLES = 2000
+DEFAULT_MSD_SAMPLE_SEED = 12345
 
 
 class VirialTensorLogger(hoomd.custom.Action):
@@ -49,6 +48,16 @@ class VirialTensorLogger(hoomd.custom.Action):
 
     def __init__(self, sim: hoomd.Simulation):
         self._sim = sim
+        if not isinstance(sim.device, hoomd.device.GPU):
+            raise RuntimeError(
+                "VirialTensorLogger requires hoomd.device.GPU because it reads "
+                "gpu_local_force_arrays."
+            )
+        if sim.device.communicator.num_ranks != 1:
+            raise RuntimeError(
+                "VirialTensorLogger only supports single-rank runs when using "
+                "gpu_local_force_arrays."
+            )
 
     @hoomd.logging.log(category="sequence")
     def virial_tensor(self):
@@ -56,16 +65,19 @@ class VirialTensorLogger(hoomd.custom.Action):
         if integrator is None:
             raise RuntimeError("Integrator must be attached before logging virials.")
 
-        total = np.zeros(6, dtype=np.float64)
+        total = cp.zeros(6, dtype=cp.float64)
         for force in integrator.forces:
-            virials = force.virials
-            if virials is not None:
-                total += np.asarray(virials, dtype=np.float64).sum(axis=0)
+            # Reduce the per-particle virials on device and transfer back only
+            # the final 6-component tensor for GSD logging.
+            with force.gpu_local_force_arrays as arrays:
+                virials = arrays.virial
+                if virials is not None:
+                    total += cp.sum(cp.asarray(virials), axis=0, dtype=cp.float64)
             additional = force.additional_virial
             if additional is not None:
-                total += np.asarray(additional, dtype=np.float64).reshape(6)
+                total += cp.asarray(additional, dtype=cp.float64).reshape(6)
 
-        return total / float(self._sim.state.box.volume)
+        return cp.asnumpy(total / float(self._sim.state.box.volume))
 
     def act(self, timestep):
         return None
@@ -115,8 +127,9 @@ class SimulationConfig:
     unsticky_equil_steps: int = 100_000
     reactive_equil_steps: int = 1_000_000
     production_steps: int = 0
-    frame_steps: int = 10_000
+    frame_steps: int = DEFAULT_FRAME_STEPS
     virial_log_steps: int = DEFAULT_VIRIAL_LOG_STEPS
+    msd_particles: int = DEFAULT_MSD_PARTICLES
 
     # Angle table
     angle_table_width: int = 1000
@@ -178,7 +191,7 @@ def parse_args() -> argparse.Namespace:
         "--frame-steps",
         type=int,
         default=None,
-        help="GSD frame spacing in steps (default 10_000).",
+        help=f"GSD frame spacing in steps (default {DEFAULT_FRAME_STEPS:_d}).",
     )
     parser.add_argument(
         "--virial-log-steps",
@@ -187,6 +200,15 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Virial-tensor log spacing in steps "
             f"(default {DEFAULT_VIRIAL_LOG_STEPS})."
+        ),
+    )
+    parser.add_argument(
+        "--msd-particles",
+        type=int,
+        default=None,
+        help=(
+            "Number of monomers to record in the sampled MSD trajectory "
+            f"(default {DEFAULT_MSD_PARTICLES})."
         ),
     )
     parser.add_argument(
@@ -564,6 +586,19 @@ def sticker_indices(cfg: SimulationConfig) -> np.ndarray:
     return np.array(indices, dtype=np.int32)
 
 
+def sample_msd_particle_tags(cfg: SimulationConfig) -> np.ndarray:
+    """Select the deterministic particle subset used for MSD logging."""
+    n_particles = cfg.n_chains * cfg.chain_length
+    if cfg.msd_particles <= 0:
+        raise ValueError("msd_particles must be positive.")
+    if cfg.msd_particles >= n_particles:
+        return np.arange(n_particles, dtype=np.int32)
+
+    rng = np.random.default_rng(DEFAULT_MSD_SAMPLE_SEED)
+    sample = rng.choice(n_particles, size=cfg.msd_particles, replace=False)
+    return np.sort(sample.astype(np.int32, copy=False))
+
+
 def set_stickers(sim: hoomd.Simulation, cfg: SimulationConfig) -> None:
     """Promote selected beads to the sticker type."""
     sticker_ids = sticker_indices(cfg)
@@ -782,6 +817,8 @@ def main() -> None:
         cfg.frame_steps = args.frame_steps
     if args.virial_log_steps is not None:
         cfg.virial_log_steps = args.virial_log_steps
+    if args.msd_particles is not None:
+        cfg.msd_particles = args.msd_particles
     if args.init_min_dist is not None:
         cfg.init_min_dist = args.init_min_dist
     if args.init_bond_length is not None:
@@ -812,6 +849,8 @@ def main() -> None:
 
     metadata_path = os.path.join(output_dir, "metadata.json")
     n_particles = cfg.n_chains * cfg.chain_length
+    sticker_tags = sticker_indices(cfg)
+    msd_particle_tags = sample_msd_particle_tags(cfg)
     target_box_length = compute_box_length(n_particles, cfg.density)
     initial_box_length = target_box_length
     write_metadata(
@@ -830,6 +869,15 @@ def main() -> None:
             "reactive_equil_total_steps": reactive_stage_steps,
             "pre_production_steps": pre_production_total_steps,
             "pre_production_runtime_tau_r0": pre_production_runtime_tau_r0,
+            "trajectory_particle_subset": "sticky_only",
+            "trajectory_particle_count": int(sticker_tags.size),
+            "trajectory_frame_steps": cfg.frame_steps,
+            "structural_trajectory_file": "trajectory.gsd",
+            "msd_particle_count": int(msd_particle_tags.size),
+            "msd_particle_tags": msd_particle_tags.tolist(),
+            "msd_frame_steps": cfg.frame_steps,
+            "msd_trajectory_file": "msd_trajectory.gsd",
+            "msd_sample_seed": DEFAULT_MSD_SAMPLE_SEED,
         },
     )
 
@@ -966,7 +1014,10 @@ def main() -> None:
     # --- Production stage ---
     print(
         f"Stage=production start steps={cfg.production_steps} "
-        f"runtime_tau_R0={production_runtime_tau_r0:.3f}",
+        f"runtime_tau_R0={production_runtime_tau_r0:.3f} "
+        f"trajectory_subset=sticky_only "
+        f"msd_frame_dt_tau_LJ={cfg.dt * cfg.frame_steps:.1f} "
+        f"msd_particles={msd_particle_tags.size}",
         flush=True,
     )
     # Let HOOMD compute virials only on writer-triggered steps instead of
@@ -977,8 +1028,8 @@ def main() -> None:
     virial_logger = hoomd.logging.Logger()
     virial_logger.add(virial_tensor_logger, quantities=["virial_tensor"])
 
-    trajectory_filter = hoomd.filter.All()
-    trajectory_dynamic = ["particles/position", "particles/image"]
+    trajectory_filter = hoomd.filter.Tags(sticker_tags.tolist())
+    trajectory_dynamic = ["particles/position"]
 
     gsd_path = os.path.join(output_dir, "trajectory.gsd")
     gsd_writer = hoomd.write.GSD(
@@ -986,11 +1037,21 @@ def main() -> None:
         trigger=hoomd.trigger.Periodic(cfg.frame_steps),
         mode="wb",
         filter=trajectory_filter,
-        # Keep the main trajectory self-contained for both structure and MSD
-        # analysis by writing particle positions and images in one file.
+        # Store only sticker coordinates for structural/network analysis.
         dynamic=trajectory_dynamic,
     )
     sim.operations.writers.append(gsd_writer)
+
+    msd_gsd_path = os.path.join(output_dir, "msd_trajectory.gsd")
+    msd_writer = hoomd.write.GSD(
+        filename=msd_gsd_path,
+        trigger=hoomd.trigger.Periodic(cfg.frame_steps),
+        mode="wb",
+        filter=hoomd.filter.Tags(msd_particle_tags.tolist()),
+        # MSD requires wrapped positions plus image vectors for unwrapping.
+        dynamic=["particles/position", "particles/image"],
+    )
+    sim.operations.writers.append(msd_writer)
 
     virial_gsd_path = os.path.join(output_dir, "virial_tensor_log.gsd")
     virial_writer = hoomd.write.GSD(

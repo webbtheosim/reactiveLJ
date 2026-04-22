@@ -118,6 +118,7 @@ class SimulationConfig:
     # Run lengths (steps)
     unsticky_equil_steps: int = 100_000
     reactive_equil_steps: int = 1_000_000
+    pre_production_equil_steps: int = 1_000_000
     production_steps: int = 0
     frame_steps: int = 10_000
     virial_log_steps: int = DEFAULT_VIRIAL_LOG_STEPS
@@ -222,6 +223,18 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=None,
         help="Equilibration steps after enabling ReactiveLJ.",
+    )
+    parser.add_argument(
+        "--pre-production-equil-steps",
+        type=int,
+        default=None,
+        help="No-output equilibration steps immediately before production.",
+    )
+    parser.add_argument(
+        "--production-steps",
+        type=int,
+        default=None,
+        help="Fixed number of production steps. Overrides --production-runtime-tau-r0.",
     )
     parser.add_argument(
         "--production-runtime-tau-r0",
@@ -340,7 +353,11 @@ def total_reactive_stage_steps(
 
 
 def pre_production_steps(cfg: SimulationConfig, reactive_lj_enabled: bool) -> int:
-    return cfg.unsticky_equil_steps + total_reactive_stage_steps(cfg, reactive_lj_enabled)
+    return (
+        cfg.unsticky_equil_steps
+        + total_reactive_stage_steps(cfg, reactive_lj_enabled)
+        + cfg.pre_production_equil_steps
+    )
 
 
 @numba.njit(cache=True)
@@ -878,12 +895,21 @@ def main() -> None:
         cfg.unsticky_equil_steps = args.unsticky_equil_steps
     if args.reactive_equil_steps is not None:
         cfg.reactive_equil_steps = args.reactive_equil_steps
-    target_production_tau_r0 = DEFAULT_TARGET_PRODUCTION_TAU_R0
-    if args.production_runtime_tau_r0 is not None:
-        target_production_tau_r0 = float(args.production_runtime_tau_r0)
-    cfg.production_steps = production_steps_for_tau_r0(
-        target_production_tau_r0, cfg.dt
-    )
+    if args.pre_production_equil_steps is not None:
+        cfg.pre_production_equil_steps = args.pre_production_equil_steps
+    if cfg.pre_production_equil_steps < 0:
+        raise ValueError("pre_production_equil_steps must be non-negative.")
+    if args.production_steps is not None:
+        if args.production_steps <= 0:
+            raise ValueError("--production-steps must be positive.")
+        cfg.production_steps = int(args.production_steps)
+    else:
+        target_production_tau_r0 = DEFAULT_TARGET_PRODUCTION_TAU_R0
+        if args.production_runtime_tau_r0 is not None:
+            target_production_tau_r0 = float(args.production_runtime_tau_r0)
+        cfg.production_steps = production_steps_for_tau_r0(
+            target_production_tau_r0, cfg.dt
+        )
     production_runtime_tau_r0 = cfg.production_steps * cfg.dt / DEFAULT_TAU_R0
     reactive_stage_steps = total_reactive_stage_steps(cfg, reactive_lj_enabled)
     pre_production_total_steps = pre_production_steps(cfg, reactive_lj_enabled)

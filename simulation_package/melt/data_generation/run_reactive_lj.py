@@ -2,9 +2,10 @@
 
 This script builds a KG melt (random-walk with rejection sampling), performs an
 unsticky melt equilibration, assigns sticker identities, turns on the ReactiveLJ
-interaction, equilibrates again, and finally runs production while writing a
-sticker-only structural trajectory, a separate sampled MSD trajectory, and a
-high-frequency virial-tensor log.
+interaction, performs a short force ramp followed by a real sticky burn-in, and
+finally runs production while writing a sticker-only structural trajectory, a
+separate sampled MSD trajectory, and a high-frequency virial-tensor log.
+Production can checkpoint and resume across multiple jobs.
 
 When ``reactive_epsilon <= 0``, the workflow automatically falls back to pure
 WCA sticker-sticker interactions (no ReactiveLJ force). In that mode, sticky
@@ -41,6 +42,9 @@ DEFAULT_REACTIVE_DT_RAMP_STEPS = 100_000
 DEFAULT_FRAME_STEPS = 100_000
 DEFAULT_MSD_PARTICLES = 2000
 DEFAULT_MSD_SAMPLE_SEED = 12345
+DEFAULT_PRODUCTION_CHUNK_STEPS = 1_000_000
+DEFAULT_WALLTIME_SAFETY_BUFFER_SECONDS = 60.0
+EXIT_REQUEUE_REQUIRED = 3
 
 
 class VirialTensorLogger(hoomd.custom.Action):
@@ -122,10 +126,10 @@ class SimulationConfig:
     smooth_beta: float = 1.0
 
     # Run lengths (steps)
-    # Run 10 tau_R^0 in production, matching the current shorter rerun
-    # target. Production steps are derived from this target in main().
+    # Production steps are derived from the requested tau_R^0 target in main().
     unsticky_equil_steps: int = 100_000
     reactive_equil_steps: int = 1_000_000
+    sticky_burnin_steps: int = 10_000_000
     production_steps: int = 0
     frame_steps: int = DEFAULT_FRAME_STEPS
     virial_log_steps: int = DEFAULT_VIRIAL_LOG_STEPS
@@ -186,6 +190,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Bond length for initial random walk (default 0.97).",
     )
+    parser.add_argument(
+        "--n-chains",
+        type=int,
+        default=None,
+        help="Number of polymer chains in the melt (default 4000).",
+    )
     # Allow overrides for a few key run parameters
     parser.add_argument(
         "--frame-steps",
@@ -224,6 +234,15 @@ def parse_args() -> argparse.Namespace:
         help="Equilibration steps after enabling ReactiveLJ.",
     )
     parser.add_argument(
+        "--sticky-burnin-steps",
+        type=int,
+        default=None,
+        help=(
+            "Full-timestep sticky burn-in steps after the ReactiveLJ ramp "
+            "(default 10,000,000 for epsilon > 0)."
+        ),
+    )
+    parser.add_argument(
         "--production-runtime-tau-r0",
         type=float,
         default=None,
@@ -238,6 +257,39 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=None,
         help="ReactiveLJ weakening exponent (default uses script config).",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume from checkpoint.gsd in the output directory when available.",
+    )
+    parser.add_argument(
+        "--walltime-limit-seconds",
+        type=float,
+        default=None,
+        help=(
+            "Soft walltime cap for the whole job in seconds. When set, production "
+            "runs in chunks and exits with a requeue code after checkpointing "
+            "before the cap is exceeded."
+        ),
+    )
+    parser.add_argument(
+        "--walltime-safety-buffer-seconds",
+        type=float,
+        default=DEFAULT_WALLTIME_SAFETY_BUFFER_SECONDS,
+        help=(
+            "Additional safety margin in seconds used when deciding whether "
+            "another production chunk can fit before the walltime cap."
+        ),
+    )
+    parser.add_argument(
+        "--production-chunk-steps",
+        type=int,
+        default=DEFAULT_PRODUCTION_CHUNK_STEPS,
+        help=(
+            "Maximum number of MD steps to run per production chunk before "
+            "checkpointing and walltime checks."
+        ),
     )
     return parser.parse_args()
 
@@ -266,8 +318,20 @@ def total_reactive_stage_steps(
     return cfg.reactive_equil_steps + reactive_dt_ramp_steps(cfg, reactive_lj_enabled)
 
 
+def sticky_burnin_stage_steps(
+    cfg: SimulationConfig, reactive_lj_enabled: bool
+) -> int:
+    if reactive_lj_enabled and cfg.sticky_burnin_steps > 0:
+        return cfg.sticky_burnin_steps
+    return 0
+
+
 def pre_production_steps(cfg: SimulationConfig, reactive_lj_enabled: bool) -> int:
-    return cfg.unsticky_equil_steps + total_reactive_stage_steps(cfg, reactive_lj_enabled)
+    return (
+        cfg.unsticky_equil_steps
+        + total_reactive_stage_steps(cfg, reactive_lj_enabled)
+        + sticky_burnin_stage_steps(cfg, reactive_lj_enabled)
+    )
 
 
 @numba.njit(cache=True)
@@ -722,6 +786,87 @@ def write_metadata(
         json.dump(data, handle, indent=2)
 
 
+def read_metadata(path: str) -> dict | None:
+    if not os.path.exists(path):
+        return None
+    with open(path, "r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def _matches_float(
+    metadata: dict, key: str, expected: float, mismatches: list[str]
+) -> None:
+    value = metadata.get(key)
+    if value is None or not np.isclose(float(value), float(expected)):
+        mismatches.append(f"{key}={value!r} (expected {expected!r})")
+
+
+def _matches_int(metadata: dict, key: str, expected: int, mismatches: list[str]) -> None:
+    value = metadata.get(key)
+    if value is None or int(value) != int(expected):
+        mismatches.append(f"{key}={value!r} (expected {expected!r})")
+
+
+def validate_existing_metadata(
+    metadata: dict,
+    cfg: SimulationConfig,
+    *,
+    epsilon: float,
+    replicate: int,
+    seed: int,
+    reactive_lj_enabled: bool,
+) -> None:
+    mismatches: list[str] = []
+    _matches_float(metadata, "reactive_epsilon", epsilon, mismatches)
+    _matches_int(metadata, "replicate", replicate, mismatches)
+    _matches_int(metadata, "seed", seed, mismatches)
+    _matches_int(metadata, "n_chains", cfg.n_chains, mismatches)
+    _matches_int(metadata, "chain_length", cfg.chain_length, mismatches)
+    _matches_int(
+        metadata, "n_particles", cfg.n_chains * cfg.chain_length, mismatches
+    )
+    _matches_float(metadata, "density", cfg.density, mismatches)
+    _matches_float(metadata, "temperature", cfg.temperature, mismatches)
+    _matches_float(metadata, "dt", cfg.dt, mismatches)
+    _matches_int(metadata, "frame_steps", cfg.frame_steps, mismatches)
+    _matches_int(
+        metadata, "trajectory_frame_steps", cfg.frame_steps, mismatches
+    )
+    _matches_int(metadata, "virial_log_steps", cfg.virial_log_steps, mismatches)
+    _matches_int(metadata, "msd_particles", cfg.msd_particles, mismatches)
+    _matches_int(
+        metadata, "unsticky_equil_steps", cfg.unsticky_equil_steps, mismatches
+    )
+    _matches_int(
+        metadata, "reactive_equil_steps", cfg.reactive_equil_steps, mismatches
+    )
+    _matches_int(
+        metadata, "sticky_burnin_steps", cfg.sticky_burnin_steps, mismatches
+    )
+    _matches_int(metadata, "production_steps", cfg.production_steps, mismatches)
+    _matches_float(
+        metadata,
+        "weakening_exponent",
+        cfg.weakening_exponent,
+        mismatches,
+    )
+    if bool(metadata.get("reactive_lj_enabled")) != bool(reactive_lj_enabled):
+        mismatches.append(
+            "reactive_lj_enabled="
+            f"{metadata.get('reactive_lj_enabled')!r} "
+            f"(expected {reactive_lj_enabled!r})"
+        )
+    if mismatches:
+        raise RuntimeError(
+            "Existing metadata does not match the requested run configuration: "
+            + "; ".join(mismatches)
+        )
+
+
+def write_checkpoint(path: str, sim: hoomd.Simulation) -> None:
+    hoomd.write.GSD.write(state=sim.state, filename=path, mode="wb")
+
+
 def build_integrator(
     cfg: SimulationConfig,
     nlist: hoomd.md.nlist.NeighborList,
@@ -804,12 +949,17 @@ def add_reactive_lj(
     return reactive
 
 
-def main() -> None:
+def main() -> int:
+    job_start = time.perf_counter()
     args = parse_args()
 
     cfg = SimulationConfig()
     cfg.reactive_epsilon = args.epsilon
     reactive_lj_enabled = cfg.reactive_epsilon > 0.0
+    if args.n_chains is not None:
+        if args.n_chains <= 0:
+            raise ValueError("--n-chains must be positive")
+        cfg.n_chains = args.n_chains
     if args.weakening_exponent is not None:
         cfg.weakening_exponent = args.weakening_exponent
 
@@ -827,6 +977,15 @@ def main() -> None:
         cfg.unsticky_equil_steps = args.unsticky_equil_steps
     if args.reactive_equil_steps is not None:
         cfg.reactive_equil_steps = args.reactive_equil_steps
+    if args.sticky_burnin_steps is not None:
+        cfg.sticky_burnin_steps = args.sticky_burnin_steps
+    if args.production_chunk_steps <= 0:
+        raise ValueError("--production-chunk-steps must be positive")
+    if args.walltime_limit_seconds is not None and args.walltime_limit_seconds <= 0.0:
+        raise ValueError("--walltime-limit-seconds must be positive when set")
+    if args.walltime_safety_buffer_seconds < 0.0:
+        raise ValueError("--walltime-safety-buffer-seconds must be non-negative")
+
     target_production_tau_r0 = DEFAULT_TARGET_PRODUCTION_TAU_R0
     if args.production_runtime_tau_r0 is not None:
         target_production_tau_r0 = float(args.production_runtime_tau_r0)
@@ -835,8 +994,11 @@ def main() -> None:
     )
     production_runtime_tau_r0 = cfg.production_steps * cfg.dt / DEFAULT_TAU_R0
     reactive_stage_steps = total_reactive_stage_steps(cfg, reactive_lj_enabled)
+    sticky_burnin_steps = sticky_burnin_stage_steps(cfg, reactive_lj_enabled)
     pre_production_total_steps = pre_production_steps(cfg, reactive_lj_enabled)
     pre_production_runtime_tau_r0 = pre_production_total_steps * cfg.dt / DEFAULT_TAU_R0
+    sticky_burnin_runtime_tau_r0 = sticky_burnin_steps * cfg.dt / DEFAULT_TAU_R0
+    production_target_step = pre_production_total_steps + cfg.production_steps
 
     seed = args.seed
     if seed is None:
@@ -848,47 +1010,188 @@ def main() -> None:
     os.makedirs(output_dir, exist_ok=True)
 
     metadata_path = os.path.join(output_dir, "metadata.json")
+    checkpoint_path = os.path.join(output_dir, "checkpoint.gsd")
+    gsd_path = os.path.join(output_dir, "trajectory.gsd")
+    msd_gsd_path = os.path.join(output_dir, "msd_trajectory.gsd")
+    virial_gsd_path = os.path.join(output_dir, "virial_tensor_log.gsd")
+
     n_particles = cfg.n_chains * cfg.chain_length
     sticker_tags = sticker_indices(cfg)
     msd_particle_tags = sample_msd_particle_tags(cfg)
     target_box_length = compute_box_length(n_particles, cfg.density)
     initial_box_length = target_box_length
-    write_metadata(
-        metadata_path,
-        cfg,
-        args.epsilon,
-        args.replicate,
-        seed,
-        reactive_lj_enabled=reactive_lj_enabled,
-        target_box_length=target_box_length,
-        initial_box_length=initial_box_length,
-        extra_metadata={
-            "tau_R0": DEFAULT_TAU_R0,
-            "production_runtime_tau_r0": production_runtime_tau_r0,
-            "reactive_dt_ramp_steps": reactive_dt_ramp_steps(cfg, reactive_lj_enabled),
-            "reactive_equil_total_steps": reactive_stage_steps,
-            "pre_production_steps": pre_production_total_steps,
-            "pre_production_runtime_tau_r0": pre_production_runtime_tau_r0,
-            "trajectory_particle_subset": "sticky_only",
-            "trajectory_particle_count": int(sticker_tags.size),
-            "trajectory_frame_steps": cfg.frame_steps,
-            "structural_trajectory_file": "trajectory.gsd",
-            "msd_particle_count": int(msd_particle_tags.size),
-            "msd_particle_tags": msd_particle_tags.tolist(),
-            "msd_frame_steps": cfg.frame_steps,
-            "msd_trajectory_file": "msd_trajectory.gsd",
-            "msd_sample_seed": DEFAULT_MSD_SAMPLE_SEED,
-        },
+
+    existing_metadata = read_metadata(metadata_path)
+    if existing_metadata is not None:
+        validate_existing_metadata(
+            existing_metadata,
+            cfg,
+            epsilon=args.epsilon,
+            replicate=args.replicate,
+            seed=seed,
+            reactive_lj_enabled=reactive_lj_enabled,
+        )
+
+    prior_cumulative_production_walltime_seconds = 0.0
+    if existing_metadata is not None:
+        prior_cumulative_production_walltime_seconds = float(
+            existing_metadata.get("cumulative_production_walltime_seconds", 0.0)
+        )
+
+    output_files = (gsd_path, msd_gsd_path, virial_gsd_path)
+    checkpoint_exists = os.path.exists(checkpoint_path)
+    existing_outputs = any(os.path.exists(path) for path in output_files)
+    existing_status = (
+        str(existing_metadata.get("run_status", "")) if existing_metadata else ""
+    )
+    existing_completed_steps = (
+        int(existing_metadata.get("production_completed_steps", 0))
+        if existing_metadata is not None
+        else 0
+    )
+    if existing_status == "complete" and existing_completed_steps >= cfg.production_steps:
+        print(
+            "Stage=resume info=run_already_complete "
+            f"completed_steps={existing_completed_steps}",
+            flush=True,
+        )
+        return 0
+
+    if args.resume:
+        if checkpoint_exists and existing_metadata is None:
+            raise RuntimeError(
+                f"Found {checkpoint_path} but metadata.json is missing; cannot resume safely."
+            )
+        resume = checkpoint_exists
+        if not resume and (existing_metadata is not None or existing_outputs):
+            raise RuntimeError(
+                "Resume requested but checkpoint.gsd is missing while partial outputs "
+                "already exist. Clear or archive the output directory before rerunning."
+            )
+    else:
+        resume = False
+        if checkpoint_exists or existing_metadata is not None or existing_outputs:
+            raise RuntimeError(
+                "Output directory already contains data. Use --resume to continue "
+                "from a checkpoint, or clear/archive the existing outputs."
+            )
+
+    metadata_base = {
+        "tau_R0": DEFAULT_TAU_R0,
+        "production_runtime_tau_r0": production_runtime_tau_r0,
+        "reactive_dt_ramp_steps": reactive_dt_ramp_steps(cfg, reactive_lj_enabled),
+        "reactive_equil_total_steps": reactive_stage_steps,
+        "sticky_burnin_total_steps": sticky_burnin_steps,
+        "sticky_burnin_runtime_tau_r0": sticky_burnin_runtime_tau_r0,
+        "pre_production_steps": pre_production_total_steps,
+        "pre_production_runtime_tau_r0": pre_production_runtime_tau_r0,
+        "production_target_final_timestep": production_target_step,
+        "trajectory_particle_subset": "sticky_only",
+        "trajectory_particle_count": int(sticker_tags.size),
+        "trajectory_frame_steps": cfg.frame_steps,
+        "structural_trajectory_file": "trajectory.gsd",
+        "msd_particle_count": int(msd_particle_tags.size),
+        "msd_particle_tags": msd_particle_tags.tolist(),
+        "msd_frame_steps": cfg.frame_steps,
+        "msd_trajectory_file": "msd_trajectory.gsd",
+        "msd_sample_seed": DEFAULT_MSD_SAMPLE_SEED,
+        "virial_log_file": "virial_tensor_log.gsd",
+        "checkpoint_file": "checkpoint.gsd",
+        "resume_requested": bool(args.resume),
+        "job_walltime_limit_seconds": (
+            float(args.walltime_limit_seconds)
+            if args.walltime_limit_seconds is not None
+            else None
+        ),
+        "job_walltime_safety_buffer_seconds": float(
+            args.walltime_safety_buffer_seconds
+        ),
+        "production_chunk_steps": int(args.production_chunk_steps),
+    }
+
+    def update_run_metadata(
+        run_status: str,
+        checkpoint_timestep: int | None,
+        cumulative_production_walltime_seconds: float,
+        note: str | None = None,
+    ) -> None:
+        if checkpoint_timestep is None:
+            production_completed_steps = 0
+        else:
+            production_completed_steps = max(
+                0, int(checkpoint_timestep) - pre_production_total_steps
+            )
+        production_completed_steps = min(cfg.production_steps, production_completed_steps)
+        production_remaining_steps = max(
+            0, cfg.production_steps - production_completed_steps
+        )
+        extra_metadata = dict(metadata_base)
+        extra_metadata.update(
+            {
+                "run_status": run_status,
+                "checkpoint_timestep": (
+                    int(checkpoint_timestep)
+                    if checkpoint_timestep is not None
+                    else None
+                ),
+                "checkpoint_exists": os.path.exists(checkpoint_path),
+                "production_completed_steps": int(production_completed_steps),
+                "production_remaining_steps": int(production_remaining_steps),
+                "production_completed_tau_r0": (
+                    production_completed_steps * cfg.dt / DEFAULT_TAU_R0
+                ),
+                "production_remaining_tau_r0": (
+                    production_remaining_steps * cfg.dt / DEFAULT_TAU_R0
+                ),
+                "production_fraction_complete": (
+                    production_completed_steps / cfg.production_steps
+                ),
+                "cumulative_production_walltime_seconds": float(
+                    cumulative_production_walltime_seconds
+                ),
+                "cumulative_production_walltime_hours": float(
+                    cumulative_production_walltime_seconds / 3600.0
+                ),
+            }
+        )
+        if note is not None:
+            extra_metadata["run_note"] = note
+        write_metadata(
+            metadata_path,
+            cfg,
+            args.epsilon,
+            args.replicate,
+            seed,
+            reactive_lj_enabled=reactive_lj_enabled,
+            target_box_length=target_box_length,
+            initial_box_length=initial_box_length,
+            extra_metadata=extra_metadata,
+        )
+
+    update_run_metadata(
+        run_status="resuming" if resume else "initializing",
+        checkpoint_timestep=(
+            int(existing_metadata.get("checkpoint_timestep"))
+            if resume
+            and existing_metadata is not None
+            and existing_metadata.get("checkpoint_timestep") is not None
+            else None
+        ),
+        cumulative_production_walltime_seconds=prior_cumulative_production_walltime_seconds,
+        note="Starting from checkpoint." if resume else "Fresh run starting.",
     )
 
     device = hoomd.device.GPU() if args.device == "gpu" else hoomd.device.CPU()
     sim = hoomd.Simulation(device=device, seed=seed)
 
-    # Build the initial melt snapshot with random-walk + rejection sampling
-    snapshot = build_snapshot(cfg, seed, initial_box_length)
-    sim.create_state_from_snapshot(snapshot)
+    if resume:
+        print(f"Stage=resume start checkpoint={checkpoint_path}", flush=True)
+        sim.create_state_from_gsd(filename=checkpoint_path)
+        print(f"Stage=resume done timestep={sim.timestep}", flush=True)
+    else:
+        snapshot = build_snapshot(cfg, seed, initial_box_length)
+        sim.create_state_from_snapshot(snapshot)
 
-    # Integrator and updaters
     pair_nlist = hoomd.md.nlist.Cell(buffer=cfg.nlist_buffer)
     reactive_nlist = hoomd.md.nlist.Cell(buffer=cfg.nlist_buffer)
     integrator = build_integrator(
@@ -903,177 +1206,296 @@ def main() -> None:
     )
     sim.operations.updaters.append(zero_momentum)
 
-    # Thermalize velocities at the target temperature
-    sim.state.thermalize_particle_momenta(filter=hoomd.filter.All(), kT=cfg.temperature)
-
-    # --- Unsticky equilibration stage (KG melt) ---
-    if cfg.unsticky_equil_steps > 0:
-        print(
-            f"Stage=unsticky_equil start steps={cfg.unsticky_equil_steps}",
-            flush=True,
+    if resume:
+        if reactive_lj_enabled:
+            add_reactive_lj(integrator, reactive_nlist, cfg)
+        if sim.timestep < pre_production_total_steps:
+            raise RuntimeError(
+                "Checkpoint predates completion of pre-production. This workflow "
+                "only supports resuming from production checkpoints."
+            )
+    else:
+        sim.state.thermalize_particle_momenta(
+            filter=hoomd.filter.All(), kT=cfg.temperature
         )
-        sim.run(cfg.unsticky_equil_steps)
-        print("Stage=unsticky_equil done", flush=True)
 
-    # --- Enable stickers and optionally ReactiveLJ ---
-    print("Stage=enable_reactive start", flush=True)
-    set_stickers(sim, cfg)
-    validate_stickers(sim, cfg)
-    if not reactive_lj_enabled:
-        print(
-            "Stage=enable_reactive info=ReactiveLJ disabled (epsilon<=0); "
-            "using WCA-only sticky-sticky interactions.",
-            flush=True,
-        )
-    print("Stage=enable_reactive done", flush=True)
+        if cfg.unsticky_equil_steps > 0:
+            print(
+                f"Stage=unsticky_equil start steps={cfg.unsticky_equil_steps}",
+                flush=True,
+            )
+            sim.run(cfg.unsticky_equil_steps)
+            print("Stage=unsticky_equil done", flush=True)
 
-    # --- Reactive equilibration stage (or WCA fallback) ---
-    if reactive_lj_enabled and cfg.reactive_equil_steps > 0:
-        print(
-            f"Stage=reactive_equil start steps={cfg.reactive_equil_steps}",
-            flush=True,
-        )
-        # ReactiveLJ requires epsilon > 0 (positive_real); start with a tiny value.
-        start_eps = 1.0e-4
-        end_eps = cfg.reactive_epsilon
-        total_steps = cfg.reactive_equil_steps
-        ramp_step = 1000
-        n_segments = (total_steps + ramp_step - 1) // ramp_step
-        reactive = None
-        report_interval = max(1, n_segments // 20)
-        ramp_dt = 1.0e-5
-        integrator.dt = ramp_dt
+        print("Stage=enable_reactive start", flush=True)
+        set_stickers(sim, cfg)
+        validate_stickers(sim, cfg)
+        if not reactive_lj_enabled:
+            print(
+                "Stage=enable_reactive info=ReactiveLJ disabled (epsilon<=0); "
+                "using WCA-only sticky-sticky interactions.",
+                flush=True,
+            )
+        print("Stage=enable_reactive done", flush=True)
 
-        for segment in range(n_segments):
-            if n_segments == 1:
-                frac = 1.0
-            else:
-                frac = segment / (n_segments - 1)
+        if reactive_lj_enabled and cfg.reactive_equil_steps > 0:
+            print(
+                f"Stage=reactive_equil start steps={cfg.reactive_equil_steps}",
+                flush=True,
+            )
+            start_eps = 1.0e-4
+            end_eps = cfg.reactive_epsilon
+            total_steps = cfg.reactive_equil_steps
+            ramp_step = 1000
+            n_segments = (total_steps + ramp_step - 1) // ramp_step
+            reactive = None
+            report_interval = max(1, n_segments // 20)
+            ramp_dt = 1.0e-5
+            integrator.dt = ramp_dt
 
-            epsilon = start_eps + (end_eps - start_eps) * frac
-            steps_this_segment = min(ramp_step, total_steps - segment * ramp_step)
-            if reactive is not None:
-                integrator.forces.remove(reactive)
-            reactive = add_reactive_lj(integrator, reactive_nlist, cfg, epsilon=epsilon)
+            for segment in range(n_segments):
+                if n_segments == 1:
+                    frac = 1.0
+                else:
+                    frac = segment / (n_segments - 1)
 
-            if segment % report_interval == 0 or segment == n_segments - 1:
-                progress_pct = 100.0 * (segment + 1) / n_segments
-                print(
-                    f"Stage=reactive_equil progress={progress_pct:.1f}% "
-                    f"segment {segment + 1}/{n_segments} epsilon={epsilon:g} "
-                    f"steps={steps_this_segment}",
-                    flush=True,
+                epsilon = start_eps + (end_eps - start_eps) * frac
+                steps_this_segment = min(ramp_step, total_steps - segment * ramp_step)
+                if reactive is not None:
+                    integrator.forces.remove(reactive)
+                reactive = add_reactive_lj(
+                    integrator, reactive_nlist, cfg, epsilon=epsilon
                 )
-            sim.run(steps_this_segment)
 
-        print("Stage=reactive_equil epsilon_ramp done", flush=True)
+                if segment % report_interval == 0 or segment == n_segments - 1:
+                    progress_pct = 100.0 * (segment + 1) / n_segments
+                    print(
+                        f"Stage=reactive_equil progress={progress_pct:.1f}% "
+                        f"segment {segment + 1}/{n_segments} epsilon={epsilon:g} "
+                        f"steps={steps_this_segment}",
+                        flush=True,
+                    )
+                sim.run(steps_this_segment)
 
-        # After the epsilon ramp, gradually restore the production timestep.
-        dt_ramp_steps = DEFAULT_REACTIVE_DT_RAMP_STEPS
-        dt_ramp_step = 1000
-        dt_start = ramp_dt
-        dt_end = cfg.dt
-        n_dt_segments = (dt_ramp_steps + dt_ramp_step - 1) // dt_ramp_step
-        dt_report_interval = max(1, n_dt_segments // 20)
+            print("Stage=reactive_equil epsilon_ramp done", flush=True)
 
-        print(f"Stage=reactive_equil dt_ramp start steps={dt_ramp_steps}", flush=True)
-        for segment in range(n_dt_segments):
-            if n_dt_segments == 1:
-                frac = 1.0
-            else:
-                frac = segment / (n_dt_segments - 1)
+            dt_ramp_steps = DEFAULT_REACTIVE_DT_RAMP_STEPS
+            dt_ramp_step = 1000
+            dt_start = ramp_dt
+            dt_end = cfg.dt
+            n_dt_segments = (dt_ramp_steps + dt_ramp_step - 1) // dt_ramp_step
+            dt_report_interval = max(1, n_dt_segments // 20)
 
-            dt_value = dt_start + (dt_end - dt_start) * frac
-            integrator.dt = dt_value
-            steps_this_segment = min(dt_ramp_step, dt_ramp_steps - segment * dt_ramp_step)
+            print(
+                f"Stage=reactive_equil dt_ramp start steps={dt_ramp_steps}",
+                flush=True,
+            )
+            for segment in range(n_dt_segments):
+                if n_dt_segments == 1:
+                    frac = 1.0
+                else:
+                    frac = segment / (n_dt_segments - 1)
 
-            if segment % dt_report_interval == 0 or segment == n_dt_segments - 1:
-                progress_pct = 100.0 * (segment + 1) / n_dt_segments
-                print(
-                    f"Stage=reactive_equil dt_ramp progress={progress_pct:.1f}% "
-                    f"segment {segment + 1}/{n_dt_segments} dt={dt_value:g} "
-                    f"steps={steps_this_segment}",
-                    flush=True,
+                dt_value = dt_start + (dt_end - dt_start) * frac
+                integrator.dt = dt_value
+                steps_this_segment = min(
+                    dt_ramp_step, dt_ramp_steps - segment * dt_ramp_step
                 )
-            sim.run(steps_this_segment)
 
-        integrator.dt = dt_end
-        print("Stage=reactive_equil dt_ramp done", flush=True)
-        print("Stage=reactive_equil done", flush=True)
-    elif reactive_lj_enabled:
-        reactive = add_reactive_lj(integrator, reactive_nlist, cfg)
-    elif cfg.reactive_equil_steps > 0:
-        print(
-            "Stage=reactive_equil start "
-            f"steps={cfg.reactive_equil_steps} mode=WCA_fallback",
-            flush=True,
+                if segment % dt_report_interval == 0 or segment == n_dt_segments - 1:
+                    progress_pct = 100.0 * (segment + 1) / n_dt_segments
+                    print(
+                        f"Stage=reactive_equil dt_ramp progress={progress_pct:.1f}% "
+                        f"segment {segment + 1}/{n_dt_segments} dt={dt_value:g} "
+                        f"steps={steps_this_segment}",
+                        flush=True,
+                    )
+                sim.run(steps_this_segment)
+
+            integrator.dt = dt_end
+            print("Stage=reactive_equil dt_ramp done", flush=True)
+            print("Stage=reactive_equil done", flush=True)
+        elif reactive_lj_enabled:
+            add_reactive_lj(integrator, reactive_nlist, cfg)
+        elif cfg.reactive_equil_steps > 0:
+            print(
+                "Stage=reactive_equil start "
+                f"steps={cfg.reactive_equil_steps} mode=WCA_fallback",
+                flush=True,
+            )
+            sim.run(cfg.reactive_equil_steps)
+            print("Stage=reactive_equil done mode=WCA_fallback", flush=True)
+
+        if reactive_lj_enabled and cfg.sticky_burnin_steps > 0:
+            print(
+                f"Stage=sticky_burnin start steps={cfg.sticky_burnin_steps} "
+                f"runtime_tau_R0={cfg.sticky_burnin_steps * cfg.dt / DEFAULT_TAU_R0:.3f}",
+                flush=True,
+            )
+            sim.run(cfg.sticky_burnin_steps)
+            print("Stage=sticky_burnin done", flush=True)
+
+        write_checkpoint(checkpoint_path, sim)
+        update_run_metadata(
+            run_status="checkpointed",
+            checkpoint_timestep=int(sim.timestep),
+            cumulative_production_walltime_seconds=prior_cumulative_production_walltime_seconds,
+            note="Pre-production, including sticky burn-in, complete; initial checkpoint written.",
         )
-        sim.run(cfg.reactive_equil_steps)
-        print("Stage=reactive_equil done mode=WCA_fallback", flush=True)
 
-    # --- Production stage ---
+    initial_production_completed_steps = max(0, int(sim.timestep) - pre_production_total_steps)
+    if initial_production_completed_steps > 0:
+        missing_outputs = [
+            os.path.basename(path) for path in output_files if not os.path.exists(path)
+        ]
+        if missing_outputs:
+            raise RuntimeError(
+                "Cannot resume production because output files are missing: "
+                + ", ".join(missing_outputs)
+            )
+
+    if sim.timestep >= production_target_step:
+        update_run_metadata(
+            run_status="complete",
+            checkpoint_timestep=int(sim.timestep),
+            cumulative_production_walltime_seconds=prior_cumulative_production_walltime_seconds,
+            note="Run reached the target timestep before entering production.",
+        )
+        print("Stage=production done info=already_at_target", flush=True)
+        return 0
+
     print(
         f"Stage=production start steps={cfg.production_steps} "
         f"runtime_tau_R0={production_runtime_tau_r0:.3f} "
+        f"completed_steps={initial_production_completed_steps} "
+        f"remaining_steps={production_target_step - int(sim.timestep)} "
         f"trajectory_subset=sticky_only "
         f"msd_frame_dt_tau_LJ={cfg.dt * cfg.frame_steps:.1f} "
         f"msd_particles={msd_particle_tags.size}",
         flush=True,
     )
-    # Let HOOMD compute virials only on writer-triggered steps instead of
-    # every MD step; the periodic virial writer below is the only consumer.
+
     sim.always_compute_pressure = False
 
     virial_tensor_logger = VirialTensorLogger(sim)
     virial_logger = hoomd.logging.Logger()
     virial_logger.add(virial_tensor_logger, quantities=["virial_tensor"])
 
+    append_mode = "ab" if initial_production_completed_steps > 0 else "wb"
     trajectory_filter = hoomd.filter.Tags(sticker_tags.tolist())
     trajectory_dynamic = ["particles/position"]
 
-    gsd_path = os.path.join(output_dir, "trajectory.gsd")
     gsd_writer = hoomd.write.GSD(
         filename=gsd_path,
         trigger=hoomd.trigger.Periodic(cfg.frame_steps),
-        mode="wb",
+        mode=append_mode,
         filter=trajectory_filter,
-        # Store only sticker coordinates for structural/network analysis.
         dynamic=trajectory_dynamic,
     )
     sim.operations.writers.append(gsd_writer)
 
-    msd_gsd_path = os.path.join(output_dir, "msd_trajectory.gsd")
     msd_writer = hoomd.write.GSD(
         filename=msd_gsd_path,
         trigger=hoomd.trigger.Periodic(cfg.frame_steps),
-        mode="wb",
+        mode=append_mode,
         filter=hoomd.filter.Tags(msd_particle_tags.tolist()),
-        # MSD requires wrapped positions plus image vectors for unwrapping.
         dynamic=["particles/position", "particles/image"],
     )
     sim.operations.writers.append(msd_writer)
 
-    virial_gsd_path = os.path.join(output_dir, "virial_tensor_log.gsd")
     virial_writer = hoomd.write.GSD(
         filename=virial_gsd_path,
         trigger=hoomd.trigger.Periodic(cfg.virial_log_steps),
-        mode="wb",
-        # Keep this log compact by excluding per-particle trajectory data.
+        mode=append_mode,
         filter=hoomd.filter.Null(),
         dynamic=[],
         logger=virial_logger,
     )
     sim.operations.writers.append(virial_writer)
 
-    production_start = time.perf_counter()
-    sim.run(cfg.production_steps)
-    print("Stage=production done", flush=True)
-    production_elapsed = time.perf_counter() - production_start
+    production_elapsed = 0.0
+    last_chunk_elapsed = 0.0
+    chunk_index = 0
 
-    # Wallclock runtime reporting for production only.
+    while sim.timestep < production_target_step:
+        current_timestep = int(sim.timestep)
+        remaining_production_steps = production_target_step - current_timestep
+        elapsed_job_seconds = time.perf_counter() - job_start
+        if args.walltime_limit_seconds is not None:
+            remaining_walltime_seconds = (
+                args.walltime_limit_seconds - elapsed_job_seconds
+            )
+            required_margin_seconds = (
+                args.walltime_safety_buffer_seconds + last_chunk_elapsed
+            )
+            if remaining_walltime_seconds <= required_margin_seconds:
+                write_checkpoint(checkpoint_path, sim)
+                cumulative_walltime_seconds = (
+                    prior_cumulative_production_walltime_seconds + production_elapsed
+                )
+                update_run_metadata(
+                    run_status="checkpointed",
+                    checkpoint_timestep=current_timestep,
+                    cumulative_production_walltime_seconds=cumulative_walltime_seconds,
+                    note=(
+                        "Stopped before walltime cap; requeue required to finish "
+                        f"{remaining_production_steps} remaining production steps."
+                    ),
+                )
+                print(
+                    "Stage=production checkpoint "
+                    f"remaining_steps={remaining_production_steps} "
+                    f"remaining_walltime_seconds={remaining_walltime_seconds:.1f} "
+                    f"required_margin_seconds={required_margin_seconds:.1f}",
+                    flush=True,
+                )
+                print(f"Production_runtime_seconds={production_elapsed:.2f}")
+                print(f"Production_runtime_hours={production_elapsed / 3600.0:.3f}")
+                return EXIT_REQUEUE_REQUIRED
+
+        steps_this_chunk = min(args.production_chunk_steps, remaining_production_steps)
+        chunk_index += 1
+        chunk_start = time.perf_counter()
+        sim.run(steps_this_chunk)
+        chunk_elapsed = time.perf_counter() - chunk_start
+        production_elapsed += chunk_elapsed
+        last_chunk_elapsed = chunk_elapsed
+
+        write_checkpoint(checkpoint_path, sim)
+        current_timestep = int(sim.timestep)
+        current_completed_steps = current_timestep - pre_production_total_steps
+        current_remaining_steps = max(0, production_target_step - current_timestep)
+        cumulative_walltime_seconds = (
+            prior_cumulative_production_walltime_seconds + production_elapsed
+        )
+        update_run_metadata(
+            run_status=(
+                "complete"
+                if current_timestep >= production_target_step
+                else "checkpointed"
+            ),
+            checkpoint_timestep=current_timestep,
+            cumulative_production_walltime_seconds=cumulative_walltime_seconds,
+            note=(
+                None
+                if current_timestep >= production_target_step
+                else f"Checkpoint after production chunk {chunk_index}."
+            ),
+        )
+        print(
+            f"Stage=production progress={100.0 * current_completed_steps / cfg.production_steps:.2f}% "
+            f"chunk={chunk_index} steps={steps_this_chunk} "
+            f"chunk_seconds={chunk_elapsed:.2f} "
+            f"completed_steps={current_completed_steps} "
+            f"remaining_steps={current_remaining_steps}",
+            flush=True,
+        )
+
+    print("Stage=production done", flush=True)
     print(f"Production_runtime_seconds={production_elapsed:.2f}")
     print(f"Production_runtime_hours={production_elapsed / 3600.0:.3f}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

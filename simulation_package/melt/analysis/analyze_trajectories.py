@@ -28,14 +28,26 @@ import matplotlib.pyplot as plt
 sys.path.append(os.path.dirname(__file__))
 
 FALLBACK_TAU_R0 = 4041.0
-MAX_ANALYSIS_LAG_TAU_R0 = 100.0
+MAX_ANALYSIS_LAG_TAU_R0 = 1000.0
 MAX_ANALYSIS_LAG_TIME = FALLBACK_TAU_R0 * MAX_ANALYSIS_LAG_TAU_R0
-REQUIRED_TRAJECTORY_FRAMES = 2020
-DEFAULT_STRESS_MAX_RUNTIME_FRACTION = 0.2
-ANALYSIS_CHOICES = ("all", "msd", "stress_modulus")
+DEFAULT_STRESS_MAX_RUNTIME_FRACTION = 1.0 / 3.0
+BOND_TAU_EPSILON_PLOT = "sticky_bond_lifetime_vs_epsilon.svg"
+LEGACY_BOND_TAU_PLOT_FILES = (
+    "ln_bond_tau_vs_epsilon.png",
+    "ln_bond_tau_vs_epsilon.svg",
+    "bond_tau_vs_epsilon.png",
+)
+ANALYSIS_CHOICES = (
+    "all",
+    "msd",
+    "stress_modulus",
+    "bond_statistics",
+    "cluster_distribution",
+    "gelation_epsilon",
+)
 
 from analysis_utils import (
-    CorrelationAccumulator,
+    MultiTauSetCorrelationAccumulator,
     UnionFind,
     autocorr_fft,
     compute_r_thresh,
@@ -43,7 +55,6 @@ from analysis_utils import (
     find_sticker_neighbor_pairs,
     fit_exponential,
     fit_exponential_semilog_linear_region,
-    multitau_autocovariance,
 )
 
 def log(message: str) -> None:
@@ -70,18 +81,12 @@ def parse_args() -> argparse.Namespace:
         help="Stride over saved GSD frames during analysis (1 = use every saved frame).",
     )
     parser.add_argument(
-        "--max-lag-frames",
-        type=int,
-        default=100,
-        help="Maximum lag (in frames) used for correlation functions.",
-    )
-    parser.add_argument(
         "--msd-max-lag-frames",
         type=int,
         default=0,
         help=(
             "Maximum lag (in frames) used for MSD calculation; 0 uses the "
-            "same truncated window as G(t), capped at 100 tau_R^0."
+            "same 1000 tau_R^0 physical cap, subject to available runtime."
         ),
     )
     parser.add_argument(
@@ -90,7 +95,7 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_STRESS_MAX_RUNTIME_FRACTION,
         help=(
             "Maximum stress-modulus lag as a fraction of the virial-log runtime "
-            "(default: 0.2)."
+            "(default: 1/3)."
         ),
     )
     parser.add_argument(
@@ -100,18 +105,36 @@ def parse_args() -> argparse.Namespace:
         default=["all"],
         help=(
             "Which analysis families to run. Use `all` for the full pipeline "
-            "(default), or choose one or more of `msd` and `stress_modulus` "
-            "to rerun only those outputs."
+            "(default), or choose one or more of `msd`, `stress_modulus`, "
+            "`bond_statistics`, `cluster_distribution`, and "
+            "`gelation_epsilon` to rerun only those outputs."
+        ),
+    )
+    parser.add_argument(
+        "--bond-lifetime-plot-only",
+        action="store_true",
+        help=(
+            "When rerunning `bond_statistics`, regenerate only the sticky-bond "
+            "lifetime plot and supporting bond-correlation CSVs."
         ),
     )
     return parser.parse_args()
 
 
-def resolve_analysis_selection(args: argparse.Namespace) -> Tuple[bool, bool, bool]:
+def resolve_analysis_selection(
+    args: argparse.Namespace,
+) -> Tuple[bool, bool, bool, bool, bool, bool]:
     requested: Set[str] = set(args.analyses)
     if "all" in requested:
-        return True, True, True
-    return False, ("msd" in requested), ("stress_modulus" in requested)
+        return True, True, True, True, True, True
+    return (
+        False,
+        ("msd" in requested),
+        ("stress_modulus" in requested),
+        ("bond_statistics" in requested),
+        ("cluster_distribution" in requested),
+        ("gelation_epsilon" in requested),
+    )
 
 
 def discover_runs(input_root: str) -> List[Tuple[str, str]]:
@@ -123,22 +146,36 @@ def discover_runs(input_root: str) -> List[Tuple[str, str]]:
         dirs[:] = [d for d in dirs if d not in excluded_dirs]
         if "trajectory.gsd" in files:
             gsd_path = os.path.join(root, "trajectory.gsd")
+            metadata_path = os.path.join(root, "metadata.json")
+            required_frames = None
+            if os.path.exists(metadata_path):
+                with open(metadata_path, "r", encoding="utf-8") as handle:
+                    metadata = json.load(handle)
+                frame_steps = int(
+                    metadata.get(
+                        "trajectory_frame_steps",
+                        metadata.get("frame_steps", 100_000),
+                    )
+                )
+                sample_dt = float(metadata.get("dt", 0.005)) * float(frame_steps)
+                required_frames = int(
+                    np.floor(MAX_ANALYSIS_LAG_TIME / sample_dt + 1.0e-12)
+                ) + 1
             with gsd.hoomd.open(gsd_path, "r") as traj:
                 n_frames = len(traj)
-            if n_frames < REQUIRED_TRAJECTORY_FRAMES:
+            if required_frames is not None and n_frames < required_frames:
                 skipped_short += 1
                 rel_path = os.path.relpath(gsd_path, input_root)
                 log(
                     f"Skipping incomplete trajectory {rel_path}: "
-                    f"{n_frames} frames < {REQUIRED_TRAJECTORY_FRAMES}"
+                    f"{n_frames} frames < {required_frames}"
                 )
                 continue
-            metadata_path = os.path.join(root, "metadata.json")
             runs.append((gsd_path, metadata_path))
     if skipped_short > 0:
         log(
-            f"Skipped {skipped_short} trajectories with fewer than "
-            f"{REQUIRED_TRAJECTORY_FRAMES} frames"
+            f"Skipped {skipped_short} trajectories shorter than the "
+            f"{MAX_ANALYSIS_LAG_TAU_R0:g} tau_R^0 lag requirement"
         )
     return runs
 
@@ -273,11 +310,63 @@ def infer_sample_dt(
     return dt * float(fallback_step_stride)
 
 
+def multitau_autocovariance_with_counts(
+    series: np.ndarray, p: int = 16, m: int = 2, S: int = 40
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    if p % m != 0:
+        raise ValueError("p must be divisible by m")
+
+    x = np.asarray(series, dtype=np.float64)
+    if x.ndim != 1:
+        raise ValueError("series must be 1D")
+    if x.size == 0:
+        empty = np.array([], dtype=np.float64)
+        return empty, empty, empty
+
+    p_m = p // m
+    lags: List[float] = []
+    cov: List[float] = []
+    counts: List[float] = []
+
+    level_data = x.copy()
+    lag_scale = 1
+
+    for level in range(S):
+        n_level = level_data.size
+        if n_level == 0:
+            break
+
+        j_start = 0 if level == 0 else p_m
+        j_stop = min(p, n_level)
+        for j in range(j_start, j_stop):
+            span = n_level - j
+            cov_ij = float(np.dot(level_data[:span], level_data[j:]) / span)
+            lags.append(float(j * lag_scale))
+            cov.append(cov_ij)
+            counts.append(float(span))
+
+        if level == S - 1:
+            break
+
+        n_next = n_level // m
+        if n_next == 0:
+            break
+        trimmed = level_data[: n_next * m]
+        level_data = np.mean(trimmed.reshape(n_next, m), axis=1)
+        lag_scale *= m
+
+    return (
+        np.asarray(lags, dtype=np.float64),
+        np.asarray(cov, dtype=np.float64),
+        np.asarray(counts, dtype=np.float64),
+    )
+
+
 def compute_stress_autocovariance_multitau(
     tensor_arr: np.ndarray,
-) -> Tuple[np.ndarray | None, np.ndarray | None]:
+) -> Tuple[np.ndarray | None, np.ndarray | None, np.ndarray | None]:
     if tensor_arr.ndim != 2 or tensor_arr.shape[0] <= 1 or tensor_arr.shape[1] < 6:
-        return None, None
+        return None, None, None
 
     xx = tensor_arr[:, 0]
     xy = tensor_arr[:, 1]
@@ -296,20 +385,26 @@ def compute_stress_autocovariance_multitau(
 
     g_lags = None
     g_cov = None
+    g_counts = None
     for weight, series_group in weighted_series:
         for series in series_group:
             centered = np.asarray(series, dtype=np.float64) - float(np.mean(series))
-            lags_i, cov_i = multitau_autocovariance(centered)
+            lags_i, cov_i, counts_i = multitau_autocovariance_with_counts(centered)
             if g_lags is None:
                 g_lags = lags_i
                 g_cov = np.zeros_like(cov_i, dtype=np.float64)
+                g_counts = counts_i
             elif not np.array_equal(lags_i, g_lags):
                 raise RuntimeError(
                     'Multi-tau lag grids do not match across stress components.'
                 )
             g_cov += weight * cov_i
+            if not np.array_equal(counts_i, g_counts):
+                raise RuntimeError(
+                    "Multi-tau sample counts do not match across stress components."
+                )
 
-    return g_lags, g_cov
+    return g_lags, g_cov, g_counts
 
 
 def compute_stress_modulus_from_virial(
@@ -323,11 +418,13 @@ def compute_stress_modulus_from_virial(
     np.ndarray | None,
     np.ndarray | None,
     np.ndarray | None,
+    np.ndarray | None,
     str | None,
 ]:
     G_t = None
     G_autocorr_t = None
     G_time = None
+    G_counts = None
     virial_source = None
 
     virial_arr = np.empty((0, 6), dtype=np.float64)
@@ -339,11 +436,11 @@ def compute_stress_modulus_from_virial(
             virial_source = "virial_tensor_log.gsd"
 
     if virial_arr.shape[0] <= 1:
-        return G_time, G_t, G_autocorr_t, virial_source
+        return G_time, G_t, G_autocorr_t, G_counts, virial_source
 
-    g_lags, g_cov = compute_stress_autocovariance_multitau(virial_arr)
-    if g_lags is None or g_cov is None:
-        return G_time, G_t, G_autocorr_t, virial_source
+    g_lags, g_cov, g_counts = compute_stress_autocovariance_multitau(virial_arr)
+    if g_lags is None or g_cov is None or g_counts is None:
+        return G_time, G_t, G_autocorr_t, G_counts, virial_source
 
     cov0 = g_cov[0] if g_cov.size > 0 and g_cov[0] != 0.0 else np.nan
     G_autocorr_t = g_cov / cov0 if g_cov.size > 0 else np.empty((0,), dtype=np.float64)
@@ -352,6 +449,7 @@ def compute_stress_modulus_from_virial(
     g_lags = g_lags[skip:]
     g_cov = g_cov[skip:]
     G_autocorr_t = G_autocorr_t[skip:]
+    g_counts = g_counts[skip:]
 
     dt_default_stride = (
         metadata.get("virial_log_steps", frame_steps)
@@ -380,12 +478,14 @@ def compute_stress_modulus_from_virial(
             g_time = g_time[lag_mask]
             g_cov = g_cov[lag_mask]
             G_autocorr_t = G_autocorr_t[lag_mask]
+            g_counts = g_counts[lag_mask]
 
     volume = box_length**3
     kT = metadata.get("temperature", 1.0)
     G_t = (volume / kT) * g_cov
     G_time = g_time
-    return G_time, G_t, G_autocorr_t, virial_source
+    G_counts = g_counts
+    return G_time, G_t, G_autocorr_t, G_counts, virial_source
 
 
 def compute_msd_fft(
@@ -402,11 +502,11 @@ def compute_msd_fft(
     if runtime is None or not np.isfinite(runtime) or runtime <= 0.0:
         runtime = float(n_frames - 1) * float(sample_dt)
 
-    max_lag_time = min(0.5 * runtime, MAX_ANALYSIS_LAG_TIME)
-    half_runtime_lag = int(np.floor(max_lag_time / float(sample_dt) + 1.0e-12))
-    half_runtime_lag = max(1, min(half_runtime_lag, n_frames - 1))
+    max_lag_time = min(runtime, MAX_ANALYSIS_LAG_TIME)
+    runtime_lag = int(np.floor(max_lag_time / float(sample_dt) + 1.0e-12))
+    runtime_lag = max(1, min(runtime_lag, n_frames - 1))
     requested_lag = (n_frames - 1) if max_lag_frames <= 0 else min(int(max_lag_frames), n_frames - 1)
-    max_lag = max(1, min(requested_lag, half_runtime_lag))
+    max_lag = max(1, min(requested_lag, runtime_lag))
 
     pos = np.asarray(positions, dtype=np.float64)
     _, n_particles, n_dim = pos.shape
@@ -488,12 +588,14 @@ def analyze_replicate(
     gsd_path: str,
     metadata: Dict,
     analysis_stride: int,
-    max_lag_frames: int,
     msd_max_lag_frames: int,
     stress_max_runtime_fraction: float,
     run_full_suite: bool,
     run_msd: bool,
     run_stress_modulus: bool,
+    run_bond_statistics: bool,
+    run_cluster_distribution: bool,
+    run_gelation_epsilon: bool,
     progress_label: str | None = None,
 ) -> Dict:
     with gsd.hoomd.open(gsd_path, "r") as traj:
@@ -512,7 +614,7 @@ def analyze_replicate(
         if not run_full_suite:
             result: Dict[str, np.ndarray | str | None] = {}
             if run_stress_modulus:
-                G_time, G_t, G_autocorr_t, virial_source = compute_stress_modulus_from_virial(
+                G_time, G_t, G_autocorr_t, G_counts, virial_source = compute_stress_modulus_from_virial(
                     gsd_path,
                     metadata,
                     box_length,
@@ -525,6 +627,7 @@ def analyze_replicate(
                         "G_time": G_time,
                         "G_t": G_t,
                         "G_autocorr_t": G_autocorr_t,
+                        "G_counts": G_counts,
                         "virial_source": virial_source,
                     }
                 )
@@ -551,40 +654,220 @@ def analyze_replicate(
                         msd_time, msd = compute_msd_fft(
                             msd_positions, msd_dt, msd_max_lag_frames, runtime=runtime
                         )
-                result.update({"msd_time": msd_time, "msd": msd})
+                msd_counts = None
+                if msd is not None and msd_positions is not None:
+                    n_frames = int(msd_positions.shape[0])
+                    n_particles = int(msd_positions.shape[1])
+                    msd_counts = (
+                        np.arange(n_frames - 1, n_frames - 1 - len(msd), -1, dtype=np.float64)
+                        * float(n_particles)
+                    )
+                result.update({"msd_time": msd_time, "msd": msd, "msd_counts": msd_counts})
+
+            if run_bond_statistics or run_cluster_distribution or run_gelation_epsilon:
+                chain_length = int(metadata.get("chain_length", 1))
+                n_chains = int(
+                    metadata.get("n_chains", first.particles.N // chain_length)
+                )
+                expected_sticker_tags = sticker_tags_from_metadata(metadata)
+                if expected_sticker_tags.size != first.particles.N:
+                    raise RuntimeError(
+                        f"Sticker-only trajectory size mismatch in {gsd_path}: "
+                        f"expected {expected_sticker_tags.size} particles, got "
+                        f"{first.particles.N}."
+                    )
+                sticker_chain_ids = (expected_sticker_tags // chain_length).astype(
+                    np.int32, copy=False
+                )
+                n_stickers = int(first.particles.N)
+                stickers_per_chain = float(metadata.get("stickers_per_chain", 4))
+                p_c = (
+                    float(1.0 / (stickers_per_chain - 1.0))
+                    if stickers_per_chain > 1.0
+                    else float("nan")
+                )
+                frame_dt = dt * frame_steps * analysis_stride
+                corr_lag_frames = max(
+                    1, int(np.floor(MAX_ANALYSIS_LAG_TIME / frame_dt + 1.0e-12))
+                )
+                reactive_sigma = float(metadata.get("reactive_sigma", 1.0))
+                r_thresh = float(compute_r_thresh(reactive_sigma))
+                r_cut = metadata.get("reactive_r_cut")
+                if r_cut is None:
+                    r_cut = 1.5 * reactive_sigma
+                weakening_outer = metadata.get("weakening_outer")
+                if weakening_outer is None:
+                    weakening_outer = 1.5 * reactive_sigma
+                pair_cutoff = max(r_thresh, float(r_cut), float(weakening_outer))
+
+                epsilon_series: List[float] = []
+                cluster_hist = np.zeros(n_chains + 1, dtype=np.float64)
+                cluster_count_total = 0
+                cluster_frames = 0
+                frac_bond0_series: List[float] = []
+                frac_bond1_series: List[float] = []
+                frac_bond_gt1_series: List[float] = []
+                intra_bond_total = 0
+                inter_bond_total = 0
+                bond_frames = 0
+                bond_corr = (
+                    MultiTauSetCorrelationAccumulator(corr_lag_frames)
+                    if run_bond_statistics
+                    else None
+                )
+
+                for analyzed_idx, frame_idx in enumerate(
+                    range(0, n_frames, analysis_stride), start=1
+                ):
+                    frame = traj[frame_idx]
+                    positions = frame.particles.position
+                    pair_i, pair_j, pair_dist = find_sticker_neighbor_pairs(
+                        positions, box_length, pair_cutoff
+                    )
+                    uf = UnionFind(n_chains)
+                    degrees = np.zeros(n_stickers, dtype=np.int32)
+                    intra = 0
+                    inter = 0
+                    bond_ids = np.empty((0,), dtype=np.int64)
+
+                    if pair_dist.size > 0:
+                        bond_mask = pair_dist < r_thresh
+                        bond_i = pair_i[bond_mask]
+                        bond_j = pair_j[bond_mask]
+                        if bond_i.size > 0:
+                            if run_bond_statistics or run_gelation_epsilon:
+                                np.add.at(degrees, bond_i, 1)
+                                np.add.at(degrees, bond_j, 1)
+                            chain_i = sticker_chain_ids[bond_i]
+                            chain_j = sticker_chain_ids[bond_j]
+                            inter_mask = chain_i != chain_j
+                            if run_cluster_distribution and np.any(inter_mask):
+                                chain_pairs = np.stack(
+                                    (chain_i[inter_mask], chain_j[inter_mask]), axis=1
+                                )
+                                chain_pairs.sort(axis=1)
+                                unique_chain_pairs = np.unique(chain_pairs, axis=0)
+                                for chain_a, chain_b in unique_chain_pairs:
+                                    uf.union(int(chain_a), int(chain_b))
+                            if run_bond_statistics:
+                                inter = int(np.count_nonzero(inter_mask))
+                                intra = int(bond_i.size - inter)
+                                low = np.minimum(bond_i, bond_j).astype(
+                                    np.int64, copy=False
+                                )
+                                high = np.maximum(bond_i, bond_j).astype(
+                                    np.int64, copy=False
+                                )
+                                bond_ids = low * np.int64(n_stickers) + high
+                                bond_ids.sort()
+
+                    if run_bond_statistics or run_gelation_epsilon:
+                        open_count = int(np.count_nonzero(degrees == 0))
+
+                    if run_gelation_epsilon:
+                        p_open = (
+                            float(open_count) / float(n_stickers)
+                            if n_stickers > 0
+                            else float("nan")
+                        )
+                        p = 1.0 - p_open
+                        epsilon_series.append(
+                            (p - p_c) / p_c if np.isfinite(p_c) else float("nan")
+                        )
+
+                    if run_bond_statistics:
+                        count1 = int(np.count_nonzero(degrees == 1))
+                        count_gt1 = n_stickers - open_count - count1
+                        frac_bond0_series.append(open_count / n_stickers)
+                        frac_bond1_series.append(count1 / n_stickers)
+                        frac_bond_gt1_series.append(count_gt1 / n_stickers)
+                        intra_bond_total += intra
+                        inter_bond_total += inter
+                        bond_frames += 1
+                        bond_corr.update(bond_ids)
+
+                    if run_cluster_distribution:
+                        sizes = uf.cluster_sizes()
+                        cluster_hist += np.bincount(
+                            sizes, minlength=n_chains + 1
+                        ).astype(np.float64, copy=False)
+                        cluster_count_total += len(sizes)
+                        cluster_frames += 1
+
+                    if progress_label is not None and (
+                        analyzed_idx % progress_interval == 0 or analyzed_idx == n_analyzed
+                    ):
+                        progress_pct = 100.0 * analyzed_idx / n_analyzed
+                        selected_labels = []
+                        if run_bond_statistics:
+                            selected_labels.append("bond_statistics")
+                        if run_cluster_distribution:
+                            selected_labels.append("cluster_distribution")
+                        if run_gelation_epsilon:
+                            selected_labels.append("gelation_epsilon")
+                        analysis_label = "+".join(selected_labels)
+                        log(
+                            f"{progress_label} [{analysis_label}]: frame progress "
+                            f"{analyzed_idx}/{n_analyzed} ({progress_pct:.1f}%)"
+                        )
+
+                if run_bond_statistics and bond_corr is not None:
+                    cs_valid_length = bond_corr.valid_length()
+                    cs = bond_corr.correlation()[:cs_valid_length]
+                    cs_time = (
+                        bond_corr.lag_indices[:cs_valid_length].astype(np.float64)
+                        * frame_dt
+                    )
+                    result.update(
+                        {
+                            "intra_bonds_mean": intra_bond_total / max(bond_frames, 1),
+                            "inter_bonds_mean": inter_bond_total / max(bond_frames, 1),
+                            "intra_inter_ratio": (
+                                intra_bond_total / inter_bond_total
+                                if inter_bond_total > 0
+                                else float("nan")
+                            ),
+                            "cs_time": cs_time,
+                            "cs": cs,
+                            "frac_bond0_series": np.array(
+                                frac_bond0_series, dtype=np.float64
+                            ),
+                            "frac_bond1_series": np.array(
+                                frac_bond1_series, dtype=np.float64
+                            ),
+                            "frac_bond_gt1_series": np.array(
+                                frac_bond_gt1_series, dtype=np.float64
+                            ),
+                        }
+                    )
+
+                if run_gelation_epsilon:
+                    result["epsilon_mean"] = (
+                        float(np.mean(epsilon_series)) if epsilon_series else float("nan")
+                    )
+                if run_cluster_distribution:
+                    result.update(
+                        {
+                            "cluster_hist": cluster_hist,
+                            "cluster_count_total": cluster_count_total,
+                            "cluster_frames": cluster_frames,
+                        }
+                    )
 
             return result
 
-        type_names = first.particles.types
-        if "sticky" not in type_names:
-            raise RuntimeError("Sticker type 'sticky' not found in trajectory.")
-        sticker_type = type_names.index("sticky")
-
-        typeid = np.asarray(first.particles.typeid, dtype=np.int32)
         chain_length = int(metadata.get("chain_length", 1))
         n_chains = int(metadata.get("n_chains", first.particles.N // chain_length))
-        trajectory_subset = str(metadata.get("trajectory_particle_subset", ""))
-        if trajectory_subset != "sticky_only":
-            raise RuntimeError(
-                f"Expected sticker-only trajectory metadata for {gsd_path}, "
-                f"found trajectory_particle_subset={trajectory_subset!r}."
-            )
-
         expected_sticker_tags = sticker_tags_from_metadata(metadata)
         if expected_sticker_tags.size != first.particles.N:
             raise RuntimeError(
                 f"Sticker-only trajectory size mismatch in {gsd_path}: "
                 f"expected {expected_sticker_tags.size} particles, got {first.particles.N}."
             )
-        if not np.all(typeid == sticker_type):
-            raise RuntimeError(
-                f"Sticker-only trajectory {gsd_path} contains non-sticky particle types."
-            )
-        sticker_ids = np.arange(first.particles.N, dtype=np.int32)
         sticker_chain_ids = (expected_sticker_tags // chain_length).astype(
             np.int32, copy=False
         )
-        n_stickers = int(sticker_ids.size)
+        n_stickers = int(first.particles.N)
 
         r_thresh = float(compute_r_thresh(metadata.get("reactive_sigma", 1.0)))
         reactive_sigma = float(metadata.get("reactive_sigma", 1.0))
@@ -603,6 +886,9 @@ def analyze_replicate(
         pair_cutoff = max(r_thresh, r_cut, weakening_outer)
 
         frame_dt = dt * frame_steps * analysis_stride
+        corr_lag_frames = max(
+            1, int(np.floor(MAX_ANALYSIS_LAG_TIME / frame_dt + 1.0e-12))
+        )
         reactive_epsilon = float(metadata.get("reactive_epsilon", float("nan")))
         stickers_per_chain = float(metadata.get("stickers_per_chain", 4))
         p_c = (
@@ -611,8 +897,8 @@ def analyze_replicate(
             else float("nan")
         )
 
-        bond_corr = CorrelationAccumulator(max_lag_frames)
-        open_corr = CorrelationAccumulator(max_lag_frames)
+        bond_corr = MultiTauSetCorrelationAccumulator(corr_lag_frames)
+        open_corr = MultiTauSetCorrelationAccumulator(corr_lag_frames)
 
         p_open_series: List[float] = []
         p_series: List[float] = []
@@ -636,9 +922,9 @@ def analyze_replicate(
         rate_dissoc_sum = 0.0
         rate_count = 0
 
-        prev_bonds: set[int] | None = None
+        prev_bond_ids: np.ndarray | None = None
         prev_open_count: int | None = None
-        prev_partners: Dict[int, set] | None = None
+        prev_is_open: np.ndarray | None = None
 
         for analyzed_idx, frame_idx in enumerate(
             range(0, n_frames, analysis_stride), start=1
@@ -647,14 +933,13 @@ def analyze_replicate(
             positions = frame.particles.position
 
             pair_i, pair_j, pair_dist = find_sticker_neighbor_pairs(
-                positions, sticker_ids, box_length, pair_cutoff
+                positions, box_length, pair_cutoff
             )
             degrees = np.zeros(n_stickers, dtype=np.int32)
             uf = UnionFind(n_chains)
             intra = 0
             inter = 0
-            partner_map: Dict[int, set] = defaultdict(set)
-            bonds: set[int] = set()
+            bond_ids = np.empty((0,), dtype=np.int64)
 
             if n_stickers > 1:
                 cexc_series.append(
@@ -673,36 +958,28 @@ def analyze_replicate(
                 bond_mask = pair_dist < r_thresh
                 bond_i = pair_i[bond_mask]
                 bond_j = pair_j[bond_mask]
-                bond_global_i = sticker_ids[bond_i]
-                bond_global_j = sticker_ids[bond_j]
-                bond_ids = np.empty(bond_i.size, dtype=np.int64)
-                for bond_idx, (i_local, j_local, i_global, j_global) in enumerate(
-                    zip(bond_i, bond_j, bond_global_i, bond_global_j)
-                ):
-                    degrees[i_local] += 1
-                    degrees[j_local] += 1
+                if bond_i.size > 0:
+                    np.add.at(degrees, bond_i, 1)
+                    np.add.at(degrees, bond_j, 1)
 
-                    chain_i = int(sticker_chain_ids[i_local])
-                    chain_j = int(sticker_chain_ids[j_local])
-                    if chain_i != chain_j:
-                        uf.union(chain_i, chain_j)
-                        inter += 1
-                    else:
-                        intra += 1
+                    chain_i = sticker_chain_ids[bond_i]
+                    chain_j = sticker_chain_ids[bond_j]
+                    inter_mask = chain_i != chain_j
+                    inter = int(np.count_nonzero(inter_mask))
+                    intra = int(bond_i.size - inter)
+                    if np.any(inter_mask):
+                        chain_pairs = np.stack(
+                            (chain_i[inter_mask], chain_j[inter_mask]), axis=1
+                        )
+                        chain_pairs.sort(axis=1)
+                        unique_chain_pairs = np.unique(chain_pairs, axis=0)
+                        for chain_a, chain_b in unique_chain_pairs:
+                            uf.union(int(chain_a), int(chain_b))
 
-                    i_global_int = int(i_global)
-                    j_global_int = int(j_global)
-                    partner_map[i_global_int].add(j_global_int)
-                    partner_map[j_global_int].add(i_global_int)
-                    if i_global_int < j_global_int:
-                        bond_key = i_global_int * n_stickers + j_global_int
-                    else:
-                        bond_key = j_global_int * n_stickers + i_global_int
-                    bond_ids[bond_idx] = bond_key
-                    bonds.add(bond_key)
-                bond_ids.sort()
-            else:
-                bond_ids = np.empty((0,), dtype=np.int64)
+                    low = np.minimum(bond_i, bond_j).astype(np.int64, copy=False)
+                    high = np.maximum(bond_i, bond_j).astype(np.int64, copy=False)
+                    bond_ids = low * np.int64(n_stickers) + high
+                    bond_ids.sort()
 
             is_open = degrees == 0
             open_count = int(np.count_nonzero(is_open))
@@ -726,8 +1003,9 @@ def analyze_replicate(
             frac_bond_gt1_series.append(count_gt1 / n_stickers)
 
             sizes = uf.cluster_sizes()
-            for size in sizes:
-                cluster_hist[size] += 1
+            cluster_hist += np.bincount(sizes, minlength=n_chains + 1).astype(
+                np.float64, copy=False
+            )
             cluster_count_total += len(sizes)
             largest_cluster_fraction_sum += float(np.max(sizes)) / n_chains
             mean_cluster_size_sum += float(np.mean(sizes))
@@ -741,33 +1019,26 @@ def analyze_replicate(
             open_corr.update(np.flatnonzero(is_open).astype(np.int64, copy=False))
 
             if (
-                prev_bonds is not None
+                prev_bond_ids is not None
                 and prev_open_count is not None
-                and prev_partners is not None
+                and prev_is_open is not None
             ):
-                new_bonds = bonds - prev_bonds
+                new_bonds = np.setdiff1d(bond_ids, prev_bond_ids, assume_unique=True)
                 n_m = prev_open_count
-                if n_m > 0:
-                    assoc = 0
-                    dissoc = 0
-                    for bond_key in new_bonds:
-                        i = bond_key // n_stickers
-                        j = bond_key % n_stickers
-                        i_prev = prev_partners.get(i, set())
-                        j_prev = prev_partners.get(j, set())
-                        if (i_prev and (j not in i_prev)) or (
-                            j_prev and (i not in j_prev)
-                        ):
-                            assoc += 1
-                        else:
-                            dissoc += 1
+                if n_m > 0 and new_bonds.size > 0:
+                    new_i = new_bonds // n_stickers
+                    new_j = new_bonds % n_stickers
+                    assoc = int(
+                        np.count_nonzero((~prev_is_open[new_i]) | (~prev_is_open[new_j]))
+                    )
+                    dissoc = int(new_bonds.size - assoc)
                     rate_assoc_sum += assoc / (n_m * frame_dt)
                     rate_dissoc_sum += dissoc / (n_m * frame_dt)
                     rate_count += 1
 
-            prev_bonds = bonds
+            prev_bond_ids = bond_ids
             prev_open_count = open_count
-            prev_partners = partner_map
+            prev_is_open = is_open.copy()
 
             if progress_label is not None and (
                 analyzed_idx % progress_interval == 0 or analyzed_idx == n_analyzed
@@ -783,19 +1054,22 @@ def analyze_replicate(
         cb_valid_length = open_corr.valid_length()
         cb = open_corr.correlation()[:cb_valid_length]
 
-        cs_time = np.arange(1, len(cs) + 1, dtype=np.float64) * frame_dt
-        tb_time = np.arange(1, len(cb) + 1, dtype=np.float64) * frame_dt
+        cs_time = bond_corr.lag_indices[:cs_valid_length].astype(np.float64) * frame_dt
+        tb_time = open_corr.lag_indices[:cb_valid_length].astype(np.float64) * frame_dt
+        cs_time, cs = truncate_lag_time(cs_time, cs, MAX_ANALYSIS_LAG_TIME)
+        tb_time, cb = truncate_lag_time(tb_time, cb, MAX_ANALYSIS_LAG_TIME)
 
         tau_s = fit_exponential_semilog_linear_region(cs_time, cs)
         tau_b = fit_exponential_semilog_linear_region(tb_time, cb)
 
         p_arr = np.array(p_series, dtype=np.float64)
         cp_full = autocorr_fft(p_arr, subtract_mean=True)
-        cp = cp_full[1 : max_lag_frames + 1]
+        cp = cp_full[1 : corr_lag_frames + 1]
         cp_time = np.arange(1, len(cp) + 1, dtype=np.float64) * frame_dt
+        cp_time, cp = truncate_lag_time(cp_time, cp, MAX_ANALYSIS_LAG_TIME)
         tau_c = fit_exponential(cp_time, cp)
 
-        G_time, G_t, G_autocorr_t, virial_source = compute_stress_modulus_from_virial(
+        G_time, G_t, G_autocorr_t, G_counts, virial_source = compute_stress_modulus_from_virial(
             gsd_path,
             metadata,
             box_length,
@@ -806,6 +1080,7 @@ def analyze_replicate(
 
         msd_time = None
         msd = None
+        msd_counts = None
         msd_path = os.path.join(
             os.path.dirname(gsd_path),
             str(metadata.get("msd_trajectory_file", "msd_trajectory.gsd")),
@@ -825,6 +1100,13 @@ def analyze_replicate(
                 msd_time, msd = compute_msd_fft(
                     msd_positions, msd_dt, msd_max_lag_frames, runtime=runtime
                 )
+                if msd is not None:
+                    n_frames = int(msd_positions.shape[0])
+                    n_particles = int(msd_positions.shape[1])
+                    msd_counts = (
+                        np.arange(n_frames - 1, n_frames - 1 - len(msd), -1, dtype=np.float64)
+                        * float(n_particles)
+                    )
 
         result = {
             "p_open_mean": (
@@ -853,6 +1135,7 @@ def analyze_replicate(
             "p_c": p_c,
             "cluster_hist": cluster_hist,
             "cluster_count_total": cluster_count_total,
+            "cluster_frames": cluster_frames,
             "cs_time": cs_time,
             "cs": cs,
             "tb_time": tb_time,
@@ -862,9 +1145,11 @@ def analyze_replicate(
             "G_time": G_time,
             "G_t": G_t,
             "G_autocorr_t": G_autocorr_t,
+            "G_counts": G_counts,
             "virial_source": virial_source,
             "msd_time": msd_time,
             "msd": msd,
+            "msd_counts": msd_counts,
             "frac_bond0_series": np.array(frac_bond0_series, dtype=np.float64),
             "frac_bond1_series": np.array(frac_bond1_series, dtype=np.float64),
             "frac_bond_gt1_series": np.array(frac_bond_gt1_series, dtype=np.float64),
@@ -884,34 +1169,41 @@ def aggregate_replicate_timeseries(
     replicate_results: List[Dict],
     key_time: str,
     key_val: str,
+    key_weight: str | None = None,
 ) -> Tuple[
     np.ndarray | None,
     np.ndarray | None,
     np.ndarray | None,
     np.ndarray | None,
 ]:
-    series = [
-        (res[key_time], res[key_val])
-        for res in replicate_results
-        if res.get(key_val) is not None
-    ]
+    series = []
+    for res in replicate_results:
+        if res.get(key_val) is None:
+            continue
+        weights = res.get(key_weight) if key_weight is not None else None
+        series.append((res[key_time], res[key_val], weights))
     if not series:
         return None, None, None, None
 
     normalized = []
-    for time_arr, value_arr in series:
+    for time_arr, value_arr, weight_arr in series:
         time_f = np.asarray(time_arr, dtype=np.float64)
         value_f = np.asarray(value_arr, dtype=np.float64)
-        n = min(len(time_f), len(value_f))
+        if weight_arr is None:
+            weight_f = np.ones_like(value_f, dtype=np.float64)
+        else:
+            weight_f = np.asarray(weight_arr, dtype=np.float64)
+        n = min(len(time_f), len(value_f), len(weight_f))
         if n > 0:
-            normalized.append((time_f[:n], value_f[:n]))
+            normalized.append((time_f[:n], value_f[:n], weight_f[:n]))
     if not normalized:
         return None, None, None, None
 
     base_idx = max(range(len(normalized)), key=lambda idx: normalized[idx][0].size)
     base_time = normalized[base_idx][0]
     values = np.full((len(normalized), base_time.size), np.nan, dtype=np.float64)
-    for row_idx, (time_arr, value_arr) in enumerate(normalized):
+    weights = np.zeros((len(normalized), base_time.size), dtype=np.float64)
+    for row_idx, (time_arr, value_arr, weight_arr) in enumerate(normalized):
         insert_idx = np.searchsorted(base_time, time_arr)
         in_bounds = insert_idx < base_time.size
         valid = np.zeros(time_arr.size, dtype=bool)
@@ -925,6 +1217,7 @@ def aggregate_replicate_timeseries(
             valid[in_bounds] = matched
         if np.any(valid):
             values[row_idx, insert_idx[valid]] = value_arr[valid]
+            weights[row_idx, insert_idx[valid]] = weight_arr[valid]
 
     populated = np.any(np.isfinite(values), axis=0)
     if not np.any(populated):
@@ -932,9 +1225,58 @@ def aggregate_replicate_timeseries(
 
     time = base_time[populated]
     values = values[:, populated]
-    mean = np.nanmean(values, axis=0)
+    weights = weights[:, populated]
+    valid = np.isfinite(values) & np.isfinite(weights) & (weights > 0.0)
+    weight_sum = np.sum(np.where(valid, weights, 0.0), axis=0)
+    weighted_value_sum = np.sum(np.where(valid, weights * values, 0.0), axis=0)
+    mean = np.divide(
+        weighted_value_sum,
+        weight_sum,
+        out=np.full(time.shape, np.nan, dtype=np.float64),
+        where=weight_sum > 0.0,
+    )
     stderr = finite_column_stderr(values)
     return time, values, mean, stderr
+
+
+def aggregate_cluster_distribution(
+    replicate_results: List[Dict],
+) -> Tuple[np.ndarray | None, np.ndarray | None, np.ndarray | None]:
+    normalized: List[Tuple[np.ndarray, float]] = []
+    max_len = 0
+    for res in replicate_results:
+        hist = res.get("cluster_hist")
+        total = res.get("cluster_count_total")
+        if hist is None or total is None:
+            continue
+        hist_arr = np.asarray(hist, dtype=np.float64)
+        total_float = float(total)
+        if hist_arr.ndim != 1 or hist_arr.size == 0 or total_float <= 0.0:
+            continue
+        normalized.append((hist_arr / total_float, total_float))
+        max_len = max(max_len, hist_arr.size)
+
+    if not normalized or max_len == 0:
+        return None, None, None
+
+    values = np.full((len(normalized), max_len), np.nan, dtype=np.float64)
+    weights = np.zeros((len(normalized), max_len), dtype=np.float64)
+    for row_idx, (distribution, total) in enumerate(normalized):
+        values[row_idx, : distribution.size] = distribution
+        weights[row_idx, : distribution.size] = total
+
+    valid = np.isfinite(values) & np.isfinite(weights) & (weights > 0.0)
+    weight_sum = np.sum(np.where(valid, weights, 0.0), axis=0)
+    weighted_value_sum = np.sum(np.where(valid, weights * values, 0.0), axis=0)
+    mean = np.divide(
+        weighted_value_sum,
+        weight_sum,
+        out=np.full((max_len,), np.nan, dtype=np.float64),
+        where=weight_sum > 0.0,
+    )
+    stderr = finite_column_stderr(values)
+    cluster_size = np.arange(max_len, dtype=np.int64)
+    return cluster_size, mean, stderr
 
 
 def write_properties_csv(path: str, properties: Dict[str, Dict[str, float]]) -> None:
@@ -1050,12 +1392,14 @@ def analyze_replicate_job(
     gsd_path: str,
     metadata: Dict,
     analysis_stride: int,
-    max_lag_frames: int,
     msd_max_lag_frames: int,
     stress_max_runtime_fraction: float,
     run_full_suite: bool,
     run_msd: bool,
     run_stress_modulus: bool,
+    run_bond_statistics: bool,
+    run_cluster_distribution: bool,
+    run_gelation_epsilon: bool,
     rep_label: str,
     rel_path: str,
 ) -> Tuple[float, Dict]:
@@ -1064,35 +1408,46 @@ def analyze_replicate_job(
         gsd_path,
         metadata,
         analysis_stride,
-        max_lag_frames,
         msd_max_lag_frames,
         stress_max_runtime_fraction,
         run_full_suite=run_full_suite,
         run_msd=run_msd,
         run_stress_modulus=run_stress_modulus,
+        run_bond_statistics=run_bond_statistics,
+        run_cluster_distribution=run_cluster_distribution,
+        run_gelation_epsilon=run_gelation_epsilon,
         progress_label=rep_label,
     )
     log(f"{rep_label}: done")
     return epsilon, result
 
-
-def truncate_lag(
-    time: np.ndarray | None, values: np.ndarray | None, max_lag: int
+def truncate_lag_time(
+    time: np.ndarray | None, values: np.ndarray | None, max_time: float
 ) -> Tuple[np.ndarray | None, np.ndarray | None]:
     if time is None or values is None:
         return None, None
-    n = min(max_lag, len(time))
-    return time[:n], values[:, :n]
+    if len(time) == 0 or not np.isfinite(max_time) or max_time <= 0.0:
+        return None, None
+    mask = np.asarray(time, dtype=np.float64) <= float(max_time)
+    if not np.any(mask):
+        return None, None
+    end = int(np.count_nonzero(mask))
+    return time[:end], values[..., :end]
 
 
 def write_fraction_violin_plot(
     path: str,
     epsilon_values: List[float],
     data: List[np.ndarray],
-    title: str,
+    title: str | None,
     y_label: str,
+    figsize: Tuple[float, float] = (6.8, 4.4),
+    dpi: int = 220,
+    x_label: str = "epsilon",
+    tick_label_size: float | None = None,
+    axis_label_size: float | None = None,
 ) -> None:
-    fig, ax = plt.subplots(figsize=(6.8, 4.4))
+    fig, ax = plt.subplots(figsize=figsize)
     parts = ax.violinplot(data, positions=epsilon_values, widths=0.6, showextrema=False)
     for body in parts.get("bodies", []):
         body.set_facecolor("#9e9e9e")
@@ -1122,15 +1477,22 @@ def write_fraction_violin_plot(
             zorder=2,
         )
 
-    ax.set_title(title)
-    ax.set_xlabel("epsilon")
-    ax.set_ylabel(y_label)
+    if title:
+        ax.set_title(title)
+    if axis_label_size is None:
+        ax.set_xlabel(x_label)
+        ax.set_ylabel(y_label)
+    else:
+        ax.set_xlabel(x_label, fontsize=axis_label_size)
+        ax.set_ylabel(y_label, fontsize=axis_label_size)
     ax.set_xticks(epsilon_values)
     ax.set_xticklabels([f"{eps:g}" for eps in epsilon_values])
+    if tick_label_size is not None:
+        ax.tick_params(axis="both", which="both", labelsize=tick_label_size)
     ax.set_ylim(0.0, 1.0)
     ax.grid(alpha=0.2, axis="y")
     fig.tight_layout()
-    fig.savefig(path, dpi=220)
+    fig.savefig(path, dpi=dpi)
     plt.close(fig)
 
 
@@ -1163,13 +1525,75 @@ def write_cexc_vs_epsilon_plot(
     plt.close(fig)
 
 
+def write_cluster_distribution_by_epsilon_plot(
+    path: str,
+    epsilon_values: List[float],
+    cluster_distribution_by_eps: Dict[float, np.ndarray],
+) -> None:
+    series = []
+    for eps in epsilon_values:
+        distribution = cluster_distribution_by_eps.get(eps)
+        if distribution is None:
+            continue
+        cluster_size = np.arange(distribution.size, dtype=np.float64)
+        prob = np.asarray(distribution, dtype=np.float64)
+        mask = np.isfinite(cluster_size) & np.isfinite(prob) & (cluster_size > 0.0) & (
+            prob > 0.0
+        )
+        if not np.any(mask):
+            continue
+        series.append((eps, cluster_size[mask], prob[mask]))
+
+    if not series:
+        return
+
+    cmap = plt.get_cmap("plasma", len(series))
+    fig, ax = plt.subplots(figsize=(3.3, 2.0))
+    max_x = 1.0
+    max_y = 1.0e-6
+    min_y = np.inf
+    for idx, (eps, cluster_size, prob) in enumerate(series):
+        color = cmap(idx)
+        ax.scatter(
+            cluster_size,
+            prob,
+            s=8.0,
+            color=color,
+            label=f"eps={eps:g}",
+            linewidths=0.0,
+        )
+        max_x = max(max_x, float(np.max(cluster_size)))
+        max_y = max(max_y, float(np.max(prob)))
+        min_y = min(min_y, float(np.min(prob)))
+
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.set_xlabel("M", fontsize=10)
+    ax.set_ylabel("P(M)", fontsize=10)
+    ax.tick_params(axis="both", which="both", labelsize=8)
+    ax.set_xlim(left=1.0, right=max_x * 1.08)
+    if np.isfinite(min_y) and min_y > 0.0:
+        ax.set_ylim(bottom=min_y * 0.8, top=max_y * 1.2)
+    ax.grid(False, which="both")
+    ax.legend(frameon=False, fontsize=7, ncol=1)
+    fig.tight_layout()
+    fig.savefig(path, dpi=1000)
+    plt.close(fig)
+
+
 def write_scalar_violin_vs_epsilon_plot(
     path: str,
     epsilon_values: List[float],
     data: List[np.ndarray],
-    title: str,
+    title: str | None,
     y_label: str,
     log_transform: bool = False,
+    log_y: bool = False,
+    figsize: Tuple[float, float] = (6.8, 4.4),
+    dpi: int = 220,
+    x_label: str = "epsilon",
+    tick_label_size: float | None = None,
+    axis_label_size: float | None = None,
 ) -> None:
     processed: List[Tuple[float, np.ndarray]] = []
     for eps, values in zip(epsilon_values, data):
@@ -1179,6 +1603,8 @@ def write_scalar_violin_vs_epsilon_plot(
             arr = arr[arr > 0.0]
             if arr.size:
                 arr = np.log(arr)
+        elif log_y:
+            arr = arr[arr > 0.0]
         if arr.size == 0:
             continue
         processed.append((float(eps), arr))
@@ -1186,7 +1612,7 @@ def write_scalar_violin_vs_epsilon_plot(
     if not processed:
         return
 
-    fig, ax = plt.subplots(figsize=(6.8, 4.4))
+    fig, ax = plt.subplots(figsize=figsize)
     violin_positions = [eps for eps, values in processed if values.size > 1]
     violin_data = [values for _, values in processed if values.size > 1]
     if violin_data:
@@ -1222,14 +1648,23 @@ def write_scalar_violin_vs_epsilon_plot(
             zorder=2,
         )
 
-    ax.set_title(title)
-    ax.set_xlabel("epsilon")
-    ax.set_ylabel(y_label)
+    if title:
+        ax.set_title(title)
+    if axis_label_size is None:
+        ax.set_xlabel(x_label)
+        ax.set_ylabel(y_label)
+    else:
+        ax.set_xlabel(x_label, fontsize=axis_label_size)
+        ax.set_ylabel(y_label, fontsize=axis_label_size)
     ax.set_xticks(epsilon_values)
     ax.set_xticklabels([f"{eps:g}" for eps in epsilon_values])
+    if tick_label_size is not None:
+        ax.tick_params(axis="both", which="both", labelsize=tick_label_size)
+    if log_y:
+        ax.set_yscale("log")
     ax.grid(alpha=0.2)
     fig.tight_layout()
-    fig.savefig(path, dpi=220)
+    fig.savefig(path, dpi=dpi)
     plt.close(fig)
 
 
@@ -1326,15 +1761,29 @@ def write_dual_scalar_violin_vs_epsilon_plot(
 
 
 def write_log_tau_vs_epsilon_plot(
-    path: str, epsilon_values: List[float], tau_data: List[np.ndarray]
+    path: str,
+    epsilon_values: List[float],
+    tau_data: List[np.ndarray],
+    title: str | None = None,
+    figsize: Tuple[float, float] = (6.8, 4.4),
+    dpi: int = 220,
+    x_label: str = r"$\varepsilon_\mathrm{reactiveLJ}$",
+    tick_label_size: float | None = None,
+    axis_label_size: float | None = None,
 ) -> None:
     write_scalar_violin_vs_epsilon_plot(
         path=path,
         epsilon_values=epsilon_values,
         data=tau_data,
-        title="ln(Bond Correlation Decay Tau) vs epsilon",
-        y_label="ln(bond persistence time)",
-        log_transform=True,
+        title=title,
+        y_label=r"$\tau_s$",
+        log_transform=False,
+        log_y=True,
+        figsize=figsize,
+        dpi=dpi,
+        x_label=x_label,
+        tick_label_size=tick_label_size,
+        axis_label_size=axis_label_size,
     )
 
 
@@ -1344,7 +1793,7 @@ def write_tau_vs_epsilon_plot(
     tau_data: List[np.ndarray],
     title: str = "Bond Correlation Decay Tau vs epsilon",
     y_label: str = "bond persistence time",
-) -> None:
+    ) -> None:
     write_scalar_violin_vs_epsilon_plot(
         path=path,
         epsilon_values=epsilon_values,
@@ -1355,68 +1804,171 @@ def write_tau_vs_epsilon_plot(
     )
 
 
-def write_pooled_timeseries_mean_vs_epsilon_plot(
-    path: str,
-    epsilon_values: List[float],
-    values_by_eps: Dict[float, np.ndarray],
-    title: str,
-    y_label: str,
-) -> None:
-    pooled_eps: List[float] = []
-    pooled_means: List[float] = []
-    for eps in epsilon_values:
-        values = values_by_eps.get(eps)
-        if values is None:
-            continue
-        finite = np.asarray(values, dtype=np.float64)
-        finite = finite[np.isfinite(finite)]
-        if finite.size == 0:
-            continue
-        pooled_eps.append(float(eps))
-        pooled_means.append(float(np.mean(finite)))
+def remove_legacy_bond_tau_plots(output_dir: str) -> None:
+    for filename in LEGACY_BOND_TAU_PLOT_FILES:
+        path = os.path.join(output_dir, filename)
+        if os.path.exists(path):
+            os.remove(path)
 
-    if not pooled_eps:
-        return
 
-    fig, ax = plt.subplots(figsize=(6.4, 4.2))
-    ax.plot(pooled_eps, pooled_means, color="#2b2b2b", marker="o", lw=2.0)
-    ax.set_title(title)
-    ax.set_xlabel("epsilon")
-    ax.set_ylabel(y_label)
-    ax.set_xticks(pooled_eps)
-    ax.set_xticklabels([f"{eps:g}" for eps in pooled_eps])
-    ax.grid(alpha=0.2)
-    fig.tight_layout()
-    fig.savefig(path, dpi=220)
-    plt.close(fig)
+def compute_shared_time_lag_xlim(
+    msd_time_by_eps: Dict[float, np.ndarray],
+    msd_mean_by_eps: Dict[float, np.ndarray],
+    g_time_by_eps: Dict[float, np.ndarray],
+    g_mean_by_eps: Dict[float, np.ndarray],
+    tau_r0: float,
+) -> Tuple[float, float] | None:
+    if not np.isfinite(tau_r0) or tau_r0 <= 0.0:
+        tau_r0 = FALLBACK_TAU_R0
+
+    positive_xmins: List[float] = []
+    positive_xmaxs: List[float] = []
+
+    for eps, msd_time in msd_time_by_eps.items():
+        msd_mean = msd_mean_by_eps.get(eps)
+        if msd_mean is None:
+            continue
+        time_arr = np.asarray(msd_time, dtype=np.float64)
+        mean_arr = np.asarray(msd_mean, dtype=np.float64)
+        n = min(time_arr.size, mean_arr.size)
+        if n == 0:
+            continue
+        x = time_arr[:n] / tau_r0
+        y = mean_arr[:n]
+        mask = np.isfinite(x) & np.isfinite(y) & (x > 0.0) & (y > 0.0)
+        if np.any(mask):
+            positive_xmins.append(float(np.min(x[mask])))
+            positive_xmaxs.append(float(np.max(x[mask])))
+
+    for eps, lag_time in g_time_by_eps.items():
+        g_mean = g_mean_by_eps.get(eps)
+        if g_mean is None:
+            continue
+        time_arr = np.asarray(lag_time, dtype=np.float64)
+        mean_arr = np.asarray(g_mean, dtype=np.float64)
+        n = min(time_arr.size, mean_arr.size)
+        if n == 0:
+            continue
+        x = time_arr[:n] / tau_r0
+        y = mean_arr[:n]
+        finite_lag = np.isfinite(x) & (x > 0.0)
+        if np.any(finite_lag):
+            positive_xmins.append(float(np.min(x[finite_lag])))
+            positive_xmaxs.append(float(np.max(x[finite_lag])))
+
+    if not positive_xmins or not positive_xmaxs:
+        return None
+    return min(positive_xmins), max(positive_xmaxs)
 
 
 def write_msd_vs_epsilon_plot(
     path: str,
     epsilon_values: List[float],
-    msd_values_by_eps: Dict[float, np.ndarray],
+    msd_time_by_eps: Dict[float, np.ndarray],
+    msd_mean_by_eps: Dict[float, np.ndarray],
+    tau_r0: float,
+    x_limits: Tuple[float, float] | None = None,
 ) -> None:
-    write_pooled_timeseries_mean_vs_epsilon_plot(
-        path=path,
-        epsilon_values=epsilon_values,
-        values_by_eps=msd_values_by_eps,
-        title="Pooled Mean Monomer MSD vs epsilon",
-        y_label=r"mean $g_1(t)$",
-    )
+    if not np.isfinite(tau_r0) or tau_r0 <= 0.0:
+        tau_r0 = FALLBACK_TAU_R0
+
+    series = []
+    for eps in epsilon_values:
+        msd_time = msd_time_by_eps.get(eps)
+        msd_mean = msd_mean_by_eps.get(eps)
+        if msd_time is None or msd_mean is None:
+            continue
+        if len(msd_time) == 0 or msd_mean.size == 0:
+            continue
+        if msd_mean.ndim != 1 or msd_mean.shape[0] != len(msd_time):
+            continue
+        x = np.asarray(msd_time, dtype=np.float64) / tau_r0
+        y = np.asarray(msd_mean, dtype=np.float64)
+        mask = np.isfinite(x) & np.isfinite(y) & (x > 0.0) & (y > 0.0)
+        if not np.any(mask):
+            continue
+        series.append((eps, x[mask], y[mask]))
+
+    if not series:
+        return
+
+    cmap = plt.get_cmap("plasma", len(series))
+    fig, ax = plt.subplots(figsize=(3.3, 2.0))
+    for idx, (eps, x, y) in enumerate(series):
+        ax.plot(x, y, color=cmap(idx), lw=2.0, label=f"eps={eps:g}")
+
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.set_xlabel(r"$\tau / \tau_R^0$", fontsize=10)
+    ax.set_ylabel("MSD", fontsize=10)
+    ax.tick_params(axis="both", which="both", labelsize=8)
+    if x_limits is not None:
+        ax.set_xlim(left=x_limits[0], right=x_limits[1])
+    ax.legend(frameon=False, ncol=2, fontsize=8)
+    fig.savefig(path, dpi=1000)
+    plt.close(fig)
 
 
 def write_stress_modulus_by_epsilon_plot(
     path: str,
     epsilon_values: List[float],
-    g_values_by_eps: Dict[float, np.ndarray],
+    g_time_by_eps: Dict[float, np.ndarray],
+    g_mean_by_eps: Dict[float, np.ndarray],
+    tau_r0: float,
+    x_limits: Tuple[float, float] | None = None,
 ) -> None:
-    write_pooled_timeseries_mean_vs_epsilon_plot(
-        path=path,
-        epsilon_values=epsilon_values,
-        values_by_eps=g_values_by_eps,
-        title="Pooled Mean Stress Modulus vs epsilon",
-        y_label="mean G(t)",
-    )
+    if not np.isfinite(tau_r0) or tau_r0 <= 0.0:
+        tau_r0 = FALLBACK_TAU_R0
+
+    series = []
+    for eps in epsilon_values:
+        lag_time = g_time_by_eps.get(eps)
+        mean = g_mean_by_eps.get(eps)
+        if lag_time is None or mean is None:
+            continue
+        if len(lag_time) == 0 or mean.size == 0:
+            continue
+        if mean.ndim != 1 or mean.shape[0] != len(lag_time):
+            continue
+        series.append((eps, lag_time, mean))
+
+    if not series:
+        return
+
+    cmap = plt.get_cmap("plasma", len(series))
+    fig, ax = plt.subplots(figsize=(3.3, 2.0))
+    for idx, (eps, lag_time, mean) in enumerate(series):
+        color = cmap(idx)
+        stop_mask = (~np.isfinite(mean)) | (mean < 1.0e-3)
+        stop_idx = np.flatnonzero(stop_mask)
+        end_idx = int(stop_idx[0]) if stop_idx.size else int(mean.size)
+        if end_idx <= 0:
+            continue
+
+        x = lag_time[:end_idx] / tau_r0
+        y = mean[:end_idx]
+        finite_positive = np.isfinite(x) & np.isfinite(y) & (x > 0.0) & (y > 0.0)
+        if not np.any(finite_positive):
+            continue
+
+        ax.plot(
+            x[finite_positive],
+            y[finite_positive],
+            color=color,
+            lw=2.0,
+            label=f"eps={eps:g}",
+        )
+
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.set_xlabel(r"$\tau / \tau_R^0$", fontsize=10)
+    ax.set_ylabel("G", fontsize=10)
+    ax.tick_params(axis="both", which="both", labelsize=8)
+    if x_limits is not None:
+        ax.set_xlim(left=x_limits[0], right=x_limits[1])
+    ax.legend(frameon=False, ncol=2, fontsize=8)
+    fig.savefig(path, dpi=1000)
+    plt.close(fig)
 
 def main() -> None:
     args = parse_args()
@@ -1425,7 +1977,23 @@ def main() -> None:
             "--stress-max-runtime-fraction must be > 0, "
             f"got {args.stress_max_runtime_fraction}."
         )
-    run_full_suite, run_msd, run_stress_modulus = resolve_analysis_selection(args)
+    (
+        run_full_suite,
+        run_msd,
+        run_stress_modulus,
+        run_bond_statistics,
+        run_cluster_distribution,
+        run_gelation_epsilon,
+    ) = resolve_analysis_selection(args)
+    if args.bond_lifetime_plot_only and run_full_suite:
+        raise RuntimeError(
+            "--bond-lifetime-plot-only requires a selected-analysis rerun, "
+            "for example `--analyses bond_statistics`."
+        )
+    if args.bond_lifetime_plot_only and not run_bond_statistics:
+        raise RuntimeError(
+            "--bond-lifetime-plot-only requires `--analyses bond_statistics`."
+        )
     if run_full_suite:
         log("Requested analyses: all")
     else:
@@ -1434,6 +2002,12 @@ def main() -> None:
             selected.append("msd")
         if run_stress_modulus:
             selected.append("stress_modulus")
+        if run_bond_statistics:
+            selected.append("bond_statistics")
+        if run_cluster_distribution:
+            selected.append("cluster_distribution")
+        if run_gelation_epsilon:
+            selected.append("gelation_epsilon")
         log(f"Requested analyses: {', '.join(selected)}")
     log(f"Scanning trajectories under {args.input_root}")
     runs = discover_runs(args.input_root)
@@ -1463,8 +2037,12 @@ def main() -> None:
     cexc_data: List[np.ndarray] = []
     tau_s_data: List[np.ndarray] = []
     tau_b_data: List[np.ndarray] = []
-    g_values_by_eps: Dict[float, np.ndarray] = {}
-    msd_values_by_eps: Dict[float, np.ndarray] = {}
+    cluster_distribution_by_eps: Dict[float, np.ndarray] = {}
+    g_time_by_eps: Dict[float, np.ndarray] = {}
+    g_mean_by_eps: Dict[float, np.ndarray] = {}
+    msd_time_by_eps: Dict[float, np.ndarray] = {}
+    msd_mean_by_eps: Dict[float, np.ndarray] = {}
+    tau_r0_reference = FALLBACK_TAU_R0
     scalar_violin_data: Dict[str, List[np.ndarray]] = {
         "p_open_mean": [],
         "p_mean": [],
@@ -1510,17 +2088,20 @@ def main() -> None:
                     gsd_path,
                     metadata,
                     args.analysis_stride,
-                    args.max_lag_frames,
                     args.msd_max_lag_frames,
                     args.stress_max_runtime_fraction,
                     run_full_suite,
                     run_msd,
                     run_stress_modulus,
+                    run_bond_statistics,
+                    run_cluster_distribution,
+                    run_gelation_epsilon,
                     rep_label,
                     rel_path,
                 )
             )
 
+    n_jobs = min(n_jobs, 49, len(jobs))
     log(f"Starting parallel analysis with {n_jobs} workers on {len(jobs)} runs")
     results = Parallel(n_jobs=n_jobs, backend="loky")(jobs)
     log(f"Completed parallel analysis for {len(results)} runs")
@@ -1533,6 +2114,24 @@ def main() -> None:
     if not run_full_suite:
         msd_eps: List[float] = []
         stress_eps: List[float] = []
+        bond_statistics_eps: List[float] = []
+        intra_inter_ratio_data: List[np.ndarray] = []
+        tau_s_data: List[np.ndarray] = []
+        frac_bond0_data: List[np.ndarray] = []
+        frac_bond1_data: List[np.ndarray] = []
+        frac_bond_gt1_data: List[np.ndarray] = []
+        cluster_eps: List[float] = []
+        gelation_epsilon_eps: List[float] = []
+        gelation_epsilon_data: List[np.ndarray] = []
+        compact_eps_plot_kwargs = {
+            "figsize": (3.3 / 2.0, 3.3 / 2.0),
+            "dpi": 1000,
+            "x_label": r"$\varepsilon$",
+            "tick_label_size": 8,
+            "axis_label_size": 10,
+        }
+        bond_tau_plot_kwargs = dict(compact_eps_plot_kwargs)
+        bond_tau_plot_kwargs["x_label"] = r"$\varepsilon_\mathrm{reactiveLJ}$"
         for eps_idx, (epsilon, replicate_results) in enumerate(sorted_results, start=1):
             eps_dir = os.path.join(args.output_dir, f"eps_{epsilon:g}")
             os.makedirs(eps_dir, exist_ok=True)
@@ -1544,7 +2143,7 @@ def main() -> None:
 
             if run_stress_modulus:
                 G_time, G_values, G_mean, G_stderr = aggregate_replicate_timeseries(
-                    replicate_results, "G_time", "G_t"
+                    replicate_results, "G_time", "G_t", key_weight="G_counts"
                 )
                 if (
                     G_time is not None
@@ -1553,7 +2152,8 @@ def main() -> None:
                     and G_stderr is not None
                 ):
                     stress_eps.append(epsilon)
-                    g_values_by_eps[epsilon] = G_values
+                    g_time_by_eps[epsilon] = G_time
+                    g_mean_by_eps[epsilon] = G_mean
                     write_timeseries(
                         os.path.join(eps_dir, "stress_modulus.csv"),
                         G_time,
@@ -1563,7 +2163,7 @@ def main() -> None:
 
             if run_msd:
                 msd_time, msd_values, msd_mean, msd_stderr = aggregate_replicate_timeseries(
-                    replicate_results, "msd_time", "msd"
+                    replicate_results, "msd_time", "msd", key_weight="msd_counts"
                 )
                 if (
                     msd_time is not None
@@ -1572,7 +2172,8 @@ def main() -> None:
                     and msd_stderr is not None
                 ):
                     msd_eps.append(epsilon)
-                    msd_values_by_eps[epsilon] = msd_values
+                    msd_time_by_eps[epsilon] = msd_time
+                    msd_mean_by_eps[epsilon] = msd_mean
                     write_timeseries(
                         os.path.join(eps_dir, "msd.csv"),
                         msd_time,
@@ -1580,20 +2181,194 @@ def main() -> None:
                         msd_stderr,
                     )
 
+            if run_bond_statistics:
+                cs_time, cs_values, cs_mean, cs_stderr = aggregate_replicate_timeseries(
+                    replicate_results, "cs_time", "cs"
+                )
+                tau_s_fit = fit_mean_timeseries_exponential(
+                    cs_time, cs_values, use_semilog_linear_region=True
+                )
+                if (
+                    cs_time is not None
+                    and cs_values is not None
+                    and cs_mean is not None
+                    and cs_stderr is not None
+                ):
+                    write_timeseries(
+                        os.path.join(eps_dir, "bond_correlation.csv"),
+                        cs_time,
+                        cs_mean,
+                        cs_stderr,
+                    )
+
+                bond_statistics_eps.append(epsilon)
+                tau_s_data.append(scalar_as_array(tau_s_fit))
+                if not args.bond_lifetime_plot_only:
+                    ratio_values = np.asarray(
+                        [
+                            float(res.get("intra_inter_ratio", float("nan")))
+                            for res in replicate_results
+                        ],
+                        dtype=np.float64,
+                    )
+                    frac_bond0_all = np.concatenate(
+                        [
+                            np.asarray(res["frac_bond0_series"], dtype=np.float64)
+                            for res in replicate_results
+                            if res.get("frac_bond0_series") is not None
+                        ]
+                    )
+                    frac_bond1_all = np.concatenate(
+                        [
+                            np.asarray(res["frac_bond1_series"], dtype=np.float64)
+                            for res in replicate_results
+                            if res.get("frac_bond1_series") is not None
+                        ]
+                    )
+                    frac_bond_gt1_all = np.concatenate(
+                        [
+                            np.asarray(res["frac_bond_gt1_series"], dtype=np.float64)
+                            for res in replicate_results
+                            if res.get("frac_bond_gt1_series") is not None
+                        ]
+                    )
+                    intra_inter_ratio_data.append(ratio_values)
+                    frac_bond0_data.append(frac_bond0_all)
+                    frac_bond1_data.append(frac_bond1_all)
+                    frac_bond_gt1_data.append(frac_bond_gt1_all)
+
+            if run_cluster_distribution:
+                cluster_size, cluster_mean, cluster_stderr = aggregate_cluster_distribution(
+                    replicate_results
+                )
+                if (
+                    cluster_size is not None
+                    and cluster_mean is not None
+                    and cluster_stderr is not None
+                ):
+                    cluster_eps.append(epsilon)
+                    cluster_distribution_by_eps[epsilon] = cluster_mean
+                    with open(
+                        os.path.join(eps_dir, "cluster_distribution.csv"),
+                        "w",
+                        encoding="utf-8",
+                    ) as handle:
+                        handle.write("cluster_size,mean,stderr\n")
+                        for size, mean_val, stderr_val in zip(
+                            cluster_size, cluster_mean, cluster_stderr
+                        ):
+                            handle.write(
+                                f"{int(size)},{mean_val:.6e},{stderr_val:.6e}\n"
+                            )
+
+            if run_gelation_epsilon:
+                epsilon_values_arr = np.asarray(
+                    [
+                        float(res.get("epsilon_mean", float("nan")))
+                        for res in replicate_results
+                    ],
+                    dtype=np.float64,
+                )
+                epsilon_values_arr = epsilon_values_arr[np.isfinite(epsilon_values_arr)]
+                if epsilon_values_arr.size > 0:
+                    gelation_epsilon_eps.append(epsilon)
+                    gelation_epsilon_data.append(epsilon_values_arr)
+
             log(f"Updated selected outputs for eps={epsilon:g} in {eps_dir}")
 
         if run_stress_modulus and stress_eps:
+            shared_time_lag_xlim = compute_shared_time_lag_xlim(
+                msd_time_by_eps,
+                msd_mean_by_eps,
+                g_time_by_eps,
+                g_mean_by_eps,
+                tau_r0_reference,
+            )
             write_stress_modulus_by_epsilon_plot(
-                os.path.join(args.output_dir, "stress_modulus_mean_vs_epsilon.png"),
+                os.path.join(args.output_dir, "stress_modulus_vs_time_lag_by_epsilon.svg"),
                 stress_eps,
-                g_values_by_eps,
+                g_time_by_eps,
+                g_mean_by_eps,
+                tau_r0_reference,
+                x_limits=shared_time_lag_xlim,
             )
         if run_msd and msd_eps:
-            write_msd_vs_epsilon_plot(
-                os.path.join(args.output_dir, "monomer_msd_mean_vs_epsilon.png"),
-                msd_eps,
-                msd_values_by_eps,
+            shared_time_lag_xlim = compute_shared_time_lag_xlim(
+                msd_time_by_eps,
+                msd_mean_by_eps,
+                g_time_by_eps,
+                g_mean_by_eps,
+                tau_r0_reference,
             )
+            write_msd_vs_epsilon_plot(
+                os.path.join(args.output_dir, "monomer_msd_vs_time_lag_by_epsilon.svg"),
+                msd_eps,
+                msd_time_by_eps,
+                msd_mean_by_eps,
+                tau_r0_reference,
+                x_limits=shared_time_lag_xlim,
+            )
+        if run_cluster_distribution and cluster_eps:
+            write_cluster_distribution_by_epsilon_plot(
+                os.path.join(args.output_dir, "cluster_size_distribution_by_epsilon.svg"),
+                cluster_eps,
+                cluster_distribution_by_eps,
+            )
+        if run_gelation_epsilon and gelation_epsilon_eps:
+            write_scalar_violin_vs_epsilon_plot(
+                os.path.join(args.output_dir, "gelation_epsilon_vs_epsilon.svg"),
+                gelation_epsilon_eps,
+                gelation_epsilon_data,
+                title=None,
+                y_label="gelation epsilon",
+                figsize=(3.3, 2.0),
+                dpi=1000,
+                x_label=r"$\varepsilon_\mathrm{reactiveLJ}$",
+                tick_label_size=8,
+                axis_label_size=10,
+            )
+        if run_bond_statistics and bond_statistics_eps:
+            remove_legacy_bond_tau_plots(args.output_dir)
+            write_log_tau_vs_epsilon_plot(
+                os.path.join(args.output_dir, BOND_TAU_EPSILON_PLOT),
+                bond_statistics_eps,
+                tau_s_data,
+                title=None,
+                **bond_tau_plot_kwargs,
+            )
+            if not args.bond_lifetime_plot_only:
+                write_fraction_violin_plot(
+                    os.path.join(args.output_dir, "sticker_fraction_bond0_violin.png"),
+                    bond_statistics_eps,
+                    frac_bond0_data,
+                    title=None,
+                    y_label="Fraction of stickers",
+                    **compact_eps_plot_kwargs,
+                )
+                write_fraction_violin_plot(
+                    os.path.join(args.output_dir, "sticker_fraction_bond1_violin.png"),
+                    bond_statistics_eps,
+                    frac_bond1_data,
+                    title=None,
+                    y_label="Fraction of stickers",
+                    **compact_eps_plot_kwargs,
+                )
+                write_fraction_violin_plot(
+                    os.path.join(args.output_dir, "sticker_fraction_bond_gt1_violin.png"),
+                    bond_statistics_eps,
+                    frac_bond_gt1_data,
+                    title=None,
+                    y_label="Fraction of stickers",
+                    **compact_eps_plot_kwargs,
+                )
+                write_scalar_violin_vs_epsilon_plot(
+                    os.path.join(args.output_dir, "intra_to_inter_bond_ratio_vs_epsilon.png"),
+                    bond_statistics_eps,
+                    intra_inter_ratio_data,
+                    title=None,
+                    y_label="intra/inter bond ratio",
+                    **compact_eps_plot_kwargs,
+                )
         log("Selected-analysis rerun complete")
         return
 
@@ -1624,23 +2399,15 @@ def main() -> None:
             mean, stderr = mean_and_stderr(vals)
             scalar_summary[key] = {"mean": mean, "stderr": stderr}
 
-        # Cluster distribution
-        cluster_hists = [res["cluster_hist"] for res in replicate_results]
-        cluster_counts = [res["cluster_count_total"] for res in replicate_results]
-        max_len = max(len(hist) for hist in cluster_hists)
-        padded = []
-        for hist in cluster_hists:
-            pad = np.zeros(max_len, dtype=np.float64)
-            pad[: len(hist)] = hist
-            padded.append(pad)
-        cluster_p = [pad / max(count, 1) for pad, count in zip(padded, cluster_counts)]
-        cluster_p_arr = np.vstack(cluster_p)
-        cluster_mean = np.mean(cluster_p_arr, axis=0)
-        cluster_stderr = (
-            np.std(cluster_p_arr, axis=0, ddof=1) / np.sqrt(cluster_p_arr.shape[0])
-            if cluster_p_arr.shape[0] > 1
-            else np.zeros_like(cluster_mean)
+        cluster_size, cluster_mean, cluster_stderr = aggregate_cluster_distribution(
+            replicate_results
         )
+        if (
+            cluster_size is not None
+            and cluster_mean is not None
+            and cluster_stderr is not None
+        ):
+            cluster_distribution_by_eps[epsilon] = cluster_mean
 
         # Time series averages
         cs_time, cs_values, cs_mean, cs_stderr = aggregate_replicate_timeseries(
@@ -1653,15 +2420,17 @@ def main() -> None:
             replicate_results, "cp_time", "cp"
         )
         G_time, G_values, G_mean, G_stderr = aggregate_replicate_timeseries(
-            replicate_results, "G_time", "G_t"
+            replicate_results, "G_time", "G_t", key_weight="G_counts"
         )
         msd_time, msd_values, msd_mean, msd_stderr = aggregate_replicate_timeseries(
-            replicate_results, "msd_time", "msd"
+            replicate_results, "msd_time", "msd", key_weight="msd_counts"
         )
-        if G_time is not None and G_values is not None:
-            g_values_by_eps[epsilon] = G_values
-        if msd_time is not None and msd_values is not None:
-            msd_values_by_eps[epsilon] = msd_values
+        if G_time is not None and G_mean is not None:
+            g_time_by_eps[epsilon] = G_time
+            g_mean_by_eps[epsilon] = G_mean
+        if msd_time is not None and msd_mean is not None:
+            msd_time_by_eps[epsilon] = msd_time
+            msd_mean_by_eps[epsilon] = msd_mean
 
         tau_s_fit = fit_mean_timeseries_exponential(
             cs_time, cs_values, use_semilog_linear_region=True
@@ -1728,13 +2497,23 @@ def main() -> None:
         os.makedirs(eps_dir, exist_ok=True)
         log(f"Writing outputs for eps={epsilon:g} to {eps_dir}")
 
-        # Cluster distribution CSV
-        with open(
-            os.path.join(eps_dir, "cluster_distribution.csv"), "w", encoding="utf-8"
-        ) as handle:
-            handle.write("cluster_size,mean,stderr\n")
-            for size, (m, s) in enumerate(zip(cluster_mean, cluster_stderr)):
-                handle.write(f"{size},{m:.6e},{s:.6e}\n")
+        if (
+            cluster_size is not None
+            and cluster_mean is not None
+            and cluster_stderr is not None
+        ):
+            with open(
+                os.path.join(eps_dir, "cluster_distribution.csv"),
+                "w",
+                encoding="utf-8",
+            ) as handle:
+                handle.write("cluster_size,mean,stderr\n")
+                for size, mean_val, stderr_val in zip(
+                    cluster_size, cluster_mean, cluster_stderr
+                ):
+                    handle.write(
+                        f"{int(size)},{mean_val:.6e},{stderr_val:.6e}\n"
+                    )
 
         if cs_time is not None:
             write_timeseries(
@@ -1758,37 +2537,28 @@ def main() -> None:
                 cp_stderr,
             )
         if cs_time is not None and cs_values is not None:
-            cs_time_fit, cs_values_fit = truncate_lag(
-                cs_time, cs_values, args.max_lag_frames
-            )
             write_autocorr_fit_plot(
                 os.path.join(eps_dir, "bond_correlation_fit.png"),
-                cs_time_fit,
-                cs_values_fit,
+                cs_time,
+                cs_values,
                 title=f"Bond Correlation Decay (eps={epsilon:g})",
                 y_label="C_s(t)",
                 use_semilog_linear_region=True,
             )
-        tb_time_fit, tb_values_fit = truncate_lag(
-            tb_time, tb_values, args.max_lag_frames
-        )
-        if tb_time_fit is not None and tb_values_fit is not None:
+        if tb_time is not None and tb_values is not None:
             write_autocorr_fit_plot(
                 os.path.join(eps_dir, "open_sticker_correlation_fit.png"),
-                tb_time_fit,
-                tb_values_fit,
+                tb_time,
+                tb_values,
                 title=f"Open-Sticker Correlation Decay (eps={epsilon:g})",
                 y_label=r"C_b(t)",
                 use_semilog_linear_region=True,
             )
-        cp_time_fit, cp_values_fit = truncate_lag(
-            cp_time, cp_values, args.max_lag_frames
-        )
-        if cp_time_fit is not None and cp_values_fit is not None:
+        if cp_time is not None and cp_values is not None:
             write_autocorr_fit_plot(
                 os.path.join(eps_dir, "connectivity_correlation_fit.png"),
-                cp_time_fit,
-                cp_values_fit,
+                cp_time,
+                cp_values,
                 title=f"Connectivity Correlation Decay (eps={epsilon:g})",
                 y_label="C_p(t)",
             )
@@ -1832,46 +2602,71 @@ def main() -> None:
         log(f"Wrote {os.path.join(args.output_dir, 'summary.csv')}")
 
     if epsilon_values:
+        compact_eps_plot_kwargs = {
+            "figsize": (3.3 / 2.0, 3.3 / 2.0),
+            "dpi": 1000,
+            "x_label": r"$\varepsilon$",
+            "tick_label_size": 8,
+            "axis_label_size": 10,
+        }
+        bond_tau_plot_kwargs = dict(compact_eps_plot_kwargs)
+        bond_tau_plot_kwargs["x_label"] = r"$\varepsilon_\mathrm{reactiveLJ}$"
         write_fraction_violin_plot(
             os.path.join(args.output_dir, "sticker_fraction_bond0_violin.png"),
             epsilon_values,
             frac_bond0_data,
-            title="Sticker Fraction with 0 Bonds",
+            title=None,
             y_label="Fraction of stickers",
+            **compact_eps_plot_kwargs,
         )
         write_fraction_violin_plot(
             os.path.join(args.output_dir, "sticker_fraction_bond1_violin.png"),
             epsilon_values,
             frac_bond1_data,
-            title="Sticker Fraction with 1 Bond",
+            title=None,
             y_label="Fraction of stickers",
+            **compact_eps_plot_kwargs,
         )
         write_fraction_violin_plot(
             os.path.join(args.output_dir, "sticker_fraction_bond_gt1_violin.png"),
             epsilon_values,
             frac_bond_gt1_data,
-            title="Sticker Fraction with >1 Bonds",
+            title=None,
             y_label="Fraction of stickers",
+            **compact_eps_plot_kwargs,
         )
         write_cexc_vs_epsilon_plot(
             os.path.join(args.output_dir, "cexc_vs_epsilon.png"),
             epsilon_values,
             cexc_data,
         )
+        write_cluster_distribution_by_epsilon_plot(
+            os.path.join(args.output_dir, "cluster_size_distribution_by_epsilon.svg"),
+            epsilon_values,
+            cluster_distribution_by_eps,
+        )
+        shared_time_lag_xlim = compute_shared_time_lag_xlim(
+            msd_time_by_eps,
+            msd_mean_by_eps,
+            g_time_by_eps,
+            g_mean_by_eps,
+            tau_r0_reference,
+        )
         write_msd_vs_epsilon_plot(
-            os.path.join(args.output_dir, "monomer_msd_mean_vs_epsilon.png"),
+            os.path.join(args.output_dir, "monomer_msd_vs_time_lag_by_epsilon.svg"),
             epsilon_values,
-            msd_values_by_eps,
+            msd_time_by_eps,
+            msd_mean_by_eps,
+            tau_r0_reference,
+            x_limits=shared_time_lag_xlim,
         )
+        remove_legacy_bond_tau_plots(args.output_dir)
         write_log_tau_vs_epsilon_plot(
-            os.path.join(args.output_dir, "ln_bond_tau_vs_epsilon.png"),
+            os.path.join(args.output_dir, BOND_TAU_EPSILON_PLOT),
             epsilon_values,
             tau_s_data,
-        )
-        write_tau_vs_epsilon_plot(
-            os.path.join(args.output_dir, "bond_tau_vs_epsilon.png"),
-            epsilon_values,
-            tau_s_data,
+            title=None,
+            **bond_tau_plot_kwargs,
         )
         write_tau_vs_epsilon_plot(
             os.path.join(args.output_dir, "brachiation_tau_vs_epsilon.png"),
@@ -1895,7 +2690,7 @@ def main() -> None:
             ),
             (
                 "epsilon_mean",
-                "gelation_epsilon_vs_epsilon.png",
+                "gelation_epsilon_vs_epsilon.svg",
                 "Degree of Gelation vs epsilon",
                 "gelation epsilon",
             ),
@@ -1919,12 +2714,27 @@ def main() -> None:
             ),
         ]
         for key, filename, title, y_label in scalar_violin_specs:
+            plot_kwargs = {}
+            plot_title = title
+            if key == "epsilon_mean":
+                plot_title = None
+                plot_kwargs = {
+                    "figsize": (3.3, 2.0),
+                    "dpi": 1000,
+                    "x_label": r"$\varepsilon_\mathrm{reactiveLJ}$",
+                    "tick_label_size": 8,
+                    "axis_label_size": 10,
+                }
+            elif key == "intra_inter_ratio":
+                plot_title = None
+                plot_kwargs = compact_eps_plot_kwargs
             write_scalar_violin_vs_epsilon_plot(
                 os.path.join(args.output_dir, filename),
                 epsilon_values,
                 scalar_violin_data[key],
-                title=title,
+                title=plot_title,
                 y_label=y_label,
+                **plot_kwargs,
             )
         write_dual_scalar_violin_vs_epsilon_plot(
             os.path.join(args.output_dir, "exchange_rate_comparison_vs_epsilon.png"),
@@ -1939,9 +2749,12 @@ def main() -> None:
             right_color="#121212",
         )
         write_stress_modulus_by_epsilon_plot(
-            os.path.join(args.output_dir, "stress_modulus_mean_vs_epsilon.png"),
+            os.path.join(args.output_dir, "stress_modulus_vs_time_lag_by_epsilon.svg"),
             epsilon_values,
-            g_values_by_eps,
+            g_time_by_eps,
+            g_mean_by_eps,
+            tau_r0_reference,
+            x_limits=shared_time_lag_xlim,
         )
 
     log("Analysis complete")

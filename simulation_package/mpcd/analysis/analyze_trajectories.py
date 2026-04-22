@@ -2,7 +2,9 @@
 
 This script loops over GSD files produced by data_generation, computes the
 analysis metrics described in agents.md, and averages results over replicates
-for each ReactiveLJ attraction strength.
+for each ReactiveLJ attraction strength. Structural analyses use the
+sticker-only ``trajectory.gsd`` while monomer MSD is read from the sampled
+``msd_trajectory.gsd`` file.
 """
 
 from __future__ import annotations
@@ -46,7 +48,7 @@ from analysis_utils import (
 )
 
 
-REPLICATE_CACHE_VERSION = 2
+REPLICATE_CACHE_VERSION = 3
 
 
 def log(message: str) -> None:
@@ -59,7 +61,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--input-root",
         default="../data_generation/outputs",
-        help="Root directory containing eps_*/rep_*/trajectory.gsd",
+        help="Root directory containing eps_*/rep_*/trajectory.gsd sticker trajectories.",
     )
     parser.add_argument(
         "--output-dir",
@@ -77,12 +79,6 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=25,
         help="Maximum lag (in frames) used for correlation functions.",
-    )
-    parser.add_argument(
-        "--msd-sample",
-        type=int,
-        default=2000,
-        help="Number of particles to sample for MSD (0 means all particles).",
     )
     parser.add_argument(
         "--msd-max-lag-frames",
@@ -122,21 +118,21 @@ def build_replicate_cache_key(
     metadata_path: str,
     analysis_stride: int,
     max_lag_frames: int,
-    msd_sample: int,
     msd_max_lag_frames: int,
 ) -> str:
     virial_log_path = os.path.join(os.path.dirname(gsd_path), "virial_tensor_log.gsd")
+    msd_gsd_path = os.path.join(os.path.dirname(gsd_path), "msd_trajectory.gsd")
     payload = {
         "cache_version": REPLICATE_CACHE_VERSION,
         "sources": {
             "trajectory": file_signature(gsd_path),
             "metadata": file_signature(metadata_path),
             "virial_log": file_signature(virial_log_path),
+            "msd_trajectory": file_signature(msd_gsd_path),
         },
         "analysis_args": {
             "analysis_stride": int(analysis_stride),
             "max_lag_frames": int(max_lag_frames),
-            "msd_sample": int(msd_sample),
             "msd_max_lag_frames": int(msd_max_lag_frames),
         },
     }
@@ -231,6 +227,63 @@ def infer_sample_dt(
     return dt * float(fallback_step_stride)
 
 
+def load_msd_positions(
+    msd_gsd_path: str,
+    analysis_stride: int,
+    progress_label: str | None = None,
+) -> np.ndarray | None:
+    with gsd.hoomd.open(msd_gsd_path, "r") as traj:
+        n_frames = len(traj)
+        if n_frames < 2:
+            return None
+
+        n_analyzed = (n_frames + analysis_stride - 1) // analysis_stride
+        progress_interval = max(1, n_analyzed // 10)
+        positions: List[np.ndarray] = []
+        for analyzed_idx, frame_idx in enumerate(
+            range(0, n_frames, analysis_stride), start=1
+        ):
+            frame = traj[frame_idx]
+            pos = np.asarray(frame.particles.position, dtype=np.float32)
+            images = getattr(frame.particles, "image", None)
+            if images is not None:
+                box_length = np.float32(frame.configuration.box[0])
+                pos = pos + np.asarray(images, dtype=np.float32) * box_length
+            positions.append(pos.astype(np.float32, copy=False))
+            if progress_label is not None and (
+                analyzed_idx % progress_interval == 0 or analyzed_idx == n_analyzed
+            ):
+                progress_pct = 100.0 * analyzed_idx / n_analyzed
+                log(
+                    f"{progress_label}: frame progress {analyzed_idx}/{n_analyzed} "
+                    f"({progress_pct:.1f}%)"
+                )
+
+    if len(positions) < 2:
+        return None
+    return np.stack(positions, axis=0)
+
+
+def sticker_tags_from_metadata(metadata: Dict) -> np.ndarray:
+    n_chains = int(metadata.get("n_chains", 0))
+    chain_length = int(metadata.get("chain_length", 0))
+    stickers_per_chain = int(metadata.get("stickers_per_chain", 0))
+    if n_chains <= 0 or chain_length <= 0 or stickers_per_chain <= 0:
+        return np.empty((0,), dtype=np.int32)
+
+    segment = chain_length / stickers_per_chain
+    offsets = np.rint((np.arange(stickers_per_chain) + 0.5) * segment).astype(np.int32)
+    offsets = np.clip(offsets, 0, chain_length - 1)
+    offsets = np.unique(offsets)
+    if offsets.size != stickers_per_chain:
+        raise RuntimeError(
+            "Could not reconstruct sticker tags from metadata; non-unique offsets detected."
+        )
+
+    chain_starts = np.arange(n_chains, dtype=np.int32) * chain_length
+    return (chain_starts[:, None] + offsets[None, :]).reshape(-1)
+
+
 def compute_stress_autocovariance_multitau(
     tensor_arr: np.ndarray,
 ) -> Tuple[np.ndarray | None, np.ndarray | None]:
@@ -273,7 +326,6 @@ def analyze_replicate(
     metadata: Dict,
     analysis_stride: int,
     max_lag_frames: int,
-    msd_sample: int,
     msd_max_lag_frames: int,
     progress_label: str | None = None,
 ) -> Dict:
@@ -290,25 +342,30 @@ def analyze_replicate(
             raise RuntimeError("Sticker type 'sticky' not found in trajectory.")
         sticker_type = type_names.index("sticky")
 
-        n_polymer_particles = int(metadata.get("n_particles", first.particles.N))
-        if n_polymer_particles <= 0:
+        trajectory_subset = str(metadata.get("trajectory_particle_subset", ""))
+        if trajectory_subset != "sticky_only":
             raise RuntimeError(
-                f"metadata n_particles must be positive, got {n_polymer_particles}"
+                f"Expected sticker-only trajectory metadata for {gsd_path}, "
+                f"found trajectory_particle_subset={trajectory_subset!r}."
             )
-        if n_polymer_particles > first.particles.N:
-            raise RuntimeError(
-                "metadata n_particles exceeds trajectory particle count "
-                f"({n_polymer_particles} > {first.particles.N})"
-            )
-
-        typeid = first.particles.typeid[:n_polymer_particles]
-        sticker_ids = np.where(typeid == sticker_type)[0]
+        typeid = np.asarray(first.particles.typeid, dtype=np.int32)
         chain_length = int(metadata.get("chain_length", 1))
-        n_chains = int(metadata.get("n_chains", n_polymer_particles // chain_length))
-        # Chains are laid out sequentially in the snapshot: tag -> chain id.
-        chain_ids = np.arange(n_polymer_particles, dtype=np.int32) // chain_length
-        n_stickers = len(sticker_ids)
-        sticker_chain_ids = chain_ids[sticker_ids]
+        n_chains = int(metadata.get("n_chains", 0))
+        expected_sticker_tags = sticker_tags_from_metadata(metadata)
+        if expected_sticker_tags.size != first.particles.N:
+            raise RuntimeError(
+                f"Sticker-only trajectory size mismatch in {gsd_path}: "
+                f"expected {expected_sticker_tags.size} particles, got {first.particles.N}."
+            )
+        if not np.all(typeid == sticker_type):
+            raise RuntimeError(
+                f"Sticker-only trajectory {gsd_path} contains non-sticky particle types."
+            )
+        sticker_ids = np.arange(first.particles.N, dtype=np.int32)
+        n_stickers = int(sticker_ids.size)
+        sticker_chain_ids = (expected_sticker_tags // chain_length).astype(
+            np.int32, copy=False
+        )
         bond_code_scale = np.int64(max(n_stickers, 1))
 
         box_length = float(first.configuration.box[0])
@@ -329,7 +386,9 @@ def analyze_replicate(
         max_pair_cutoff = max(float(r_thresh), r_cut, weakening_outer)
 
         dt = float(metadata.get("dt", 0.005))
-        frame_steps = int(metadata.get("frame_steps", 10_000))
+        frame_steps = int(
+            metadata.get("trajectory_frame_steps", metadata.get("frame_steps", 10_000))
+        )
         frame_dt = dt * frame_steps * analysis_stride
         reactive_epsilon = float(metadata.get("reactive_epsilon", float("nan")))
         compute_open_corr = should_compute_open_corr(reactive_epsilon)
@@ -372,16 +431,6 @@ def analyze_replicate(
         rate_dissoc_sum = 0.0
         rate_count = 0
 
-        # MSD sampling
-        n_particles = n_polymer_particles
-        if msd_sample == 0 or msd_sample >= n_particles:
-            sample_ids = np.arange(n_particles)
-        else:
-            rng = np.random.default_rng(12345)
-            sample_ids = rng.choice(n_particles, size=msd_sample, replace=False)
-
-        msd_positions: List[np.ndarray] = []
-
         prev_bonds: set[int] | None = None
         prev_open_count: int | None = None
         prev_bonded_mask: np.ndarray | None = None
@@ -390,12 +439,7 @@ def analyze_replicate(
             range(0, n_frames, analysis_stride), start=1
         ):
             frame = traj[frame_idx]
-            positions = frame.particles.position[:n_polymer_particles]
-            images = getattr(frame.particles, "image", None)
-            if images is not None:
-                images = images[:n_polymer_particles]
-
-            sticker_positions = positions[sticker_ids]
+            sticker_positions = np.asarray(frame.particles.position, dtype=np.float32)
             pair_i, pair_j, pair_dist = compute_sticker_neighbor_pairs(
                 sticker_positions, box_length, max_pair_cutoff
             )
@@ -517,13 +561,6 @@ def analyze_replicate(
             prev_open_count = count0
             prev_bonded_mask = degrees > 0
 
-            # MSD sampling
-            if images is None:
-                unwrapped = positions[sample_ids]
-            else:
-                unwrapped = positions[sample_ids] + images[sample_ids] * box_length
-            msd_positions.append(unwrapped.astype(np.float64))
-
             if progress_label is not None and (
                 analyzed_idx % progress_interval == 0 or analyzed_idx == n_analyzed
             ):
@@ -610,15 +647,29 @@ def analyze_replicate(
         # MSD
         msd_time = None
         msd = None
-        if msd_positions:
-            pos = np.stack(msd_positions, axis=0)
-            max_lag = min(msd_max_lag_frames, pos.shape[0] - 1)
-            msd_vals = []
-            for lag in range(1, max_lag + 1):
-                diff = pos[lag:] - pos[:-lag]
-                msd_vals.append(np.mean(np.sum(diff * diff, axis=-1)))
-            msd = np.array(msd_vals, dtype=np.float64)
-            msd_time = np.arange(1, len(msd) + 1, dtype=np.float64) * frame_dt
+        msd_path = os.path.join(
+            os.path.dirname(gsd_path),
+            str(metadata.get("msd_trajectory_file", "msd_trajectory.gsd")),
+        )
+        if os.path.exists(msd_path):
+            msd_positions = load_msd_positions(
+                msd_path,
+                analysis_stride,
+                progress_label=(
+                    f"{progress_label} [MSD]" if progress_label is not None else None
+                ),
+            )
+            if msd_positions is not None:
+                msd_frame_steps = int(metadata.get("msd_frame_steps", frame_steps))
+                msd_dt = dt * msd_frame_steps * analysis_stride
+                pos = msd_positions.astype(np.float64, copy=False)
+                max_lag = min(msd_max_lag_frames, pos.shape[0] - 1)
+                msd_vals = []
+                for lag in range(1, max_lag + 1):
+                    diff = pos[lag:] - pos[:-lag]
+                    msd_vals.append(np.mean(np.sum(diff * diff, axis=-1)))
+                msd = np.array(msd_vals, dtype=np.float64)
+                msd_time = np.arange(1, len(msd) + 1, dtype=np.float64) * msd_dt
 
         # Summaries
         result = {
@@ -754,7 +805,6 @@ def analyze_replicate_job(
     metadata: Dict,
     analysis_stride: int,
     max_lag_frames: int,
-    msd_sample: int,
     msd_max_lag_frames: int,
     rep_label: str,
     rel_path: str,
@@ -765,7 +815,6 @@ def analyze_replicate_job(
         metadata_path,
         analysis_stride,
         max_lag_frames,
-        msd_sample,
         msd_max_lag_frames,
     )
     cache_path = os.path.join(cache_root, f"{cache_key}.pkl")
@@ -780,7 +829,6 @@ def analyze_replicate_job(
         metadata,
         analysis_stride,
         max_lag_frames,
-        msd_sample,
         msd_max_lag_frames,
         progress_label=rep_label,
     )
@@ -1260,7 +1308,6 @@ def main() -> None:
                     metadata,
                     args.analysis_stride,
                     args.max_lag_frames,
-                    args.msd_sample,
                     args.msd_max_lag_frames,
                     rep_label,
                     rel_path,

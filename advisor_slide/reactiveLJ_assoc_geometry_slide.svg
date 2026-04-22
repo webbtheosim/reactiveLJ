@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
+<rect width="1920" height="1080" fill="#f6f2ea"/>
+<rect x="0" y="0" width="1920" height="104" fill="#1f2a44"/>
+<text x="84" y="68" font-size="38" fill="#ffffff" font-weight="bold" text-anchor="start" font-family="DejaVu Sans">Geometry behind ΔE_assoc: one deep bond becomes two crowded shallow bonds</text>
+<text x="84" y="122" font-size="27" fill="#6d655b" font-weight="normal" text-anchor="start" font-family="DejaVu Sans">The estimate uses a hub-like 3-sticker intermediate consistent with Methods §2.4 and the default cutoffs</text>
+<rect x="82" y="162" width="845" height="620" rx="28" fill="#ffffff" stroke="#d9d2c7" stroke-width="2"/>
+<rect x="960" y="162" width="878" height="620" rx="28" fill="#ffffff" stroke="#d9d2c7" stroke-width="2"/>
+<rect x="82" y="812" width="1756" height="208" rx="28" fill="#fff6ec" stroke="#e1b78e" stroke-width="2"/>
+<text x="112" y="210" font-size="32" fill="#1f2a44" font-weight="bold" text-anchor="start" font-family="DejaVu Sans">1. Initial state used as reference</text>
+<text x="990" y="210" font-size="32" fill="#1f2a44" font-weight="bold" text-anchor="start" font-family="DejaVu Sans">2. Associative intermediate for the estimate</text>
+<circle cx="245" cy="430" r="42" fill="#f4c95d" stroke="#8e6b00" stroke-width="4"/>
+<circle cx="425" cy="430" r="42" fill="#9ad1d4" stroke="#1f8a8a" stroke-width="4"/>
+<circle cx="690" cy="300" r="42" fill="#e58f65" stroke="#b04f2c" stroke-width="4"/>
+<line x1="245" y1="430" x2="425" y2="430" stroke="#2f3e63" stroke-width="10" stroke-linecap="round"/>
+<line x1="477" y1="418" x2="632" y2="318" stroke="#b7aea1" stroke-width="4" stroke-linecap="round" stroke-dasharray="10 8"/>
+<text x="245" y="440" font-size="34" fill="#2d2925" font-weight="bold" text-anchor="middle" font-family="DejaVu Sans">A</text>
+<text x="425" y="440" font-size="34" fill="#2d2925" font-weight="bold" text-anchor="middle" font-family="DejaVu Sans">B</text>
+<text x="690" y="310" font-size="34" fill="#2d2925" font-weight="bold" text-anchor="middle" font-family="DejaVu Sans">C</text>
+<text x="335" y="395" font-size="27" fill="#2d2925" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans">A-B at r ≈ r_min</text>
+<text x="560" y="350" font-size="27" fill="#6d655b" font-weight="normal" text-anchor="start" font-family="DejaVu Sans">C still free</text>
+<text x="112" y="585" font-size="29" fill="#1f2a44" font-weight="bold" text-anchor="start" font-family="DejaVu Sans">Uncrowded A-B bond:</text>
+<text x="112" y="627" font-size="29" fill="#2d2925" font-weight="normal" text-anchor="start" font-family="DejaVu Sans">C_AB^exc ≈ 0  →  W_AB = 1</text>
+<text x="112" y="669" font-size="30" fill="#d46a3d" font-weight="bold" text-anchor="start" font-family="DejaVu Sans">E_initial ≈ U_min</text>
+<text x="112" y="724" font-size="27" fill="#2d2925" font-weight="normal" text-anchor="start" font-family="DejaVu Sans">Interpretation: one full-strength attractive bond; no crowding penalty yet.</text>
+<circle cx="1310" cy="465" r="202.6794583769272" fill="none" stroke="#c8bfb2" stroke-width="4" stroke-dasharray="10 8"/>
+<circle cx="1310" cy="465" r="44" fill="#f4c95d" stroke="#8e6b00" stroke-width="4"/>
+<circle cx="1175.9422224541788" cy="352.5121683048556" r="42" fill="#9ad1d4" stroke="#1f8a8a" stroke-width="4"/>
+<circle cx="1444.0577775458212" cy="352.51216830485566" r="42" fill="#e58f65" stroke="#b04f2c" stroke-width="4"/>
+<line x1="1310" y1="465" x2="1175.9422224541788" y2="352.5121683048556" stroke="#2f3e63" stroke-width="9" stroke-linecap="round"/>
+<line x1="1310" y1="465" x2="1444.0577775458212" y2="352.51216830485566" stroke="#2f3e63" stroke-width="9" stroke-linecap="round"/>
+<line x1="1175.9422224541788" y1="352.5121683048556" x2="1444.0577775458212" y2="352.51216830485566" stroke="#b7aea1" stroke-width="4" stroke-linecap="round" stroke-dasharray="10 8"/>
+<text x="1310" y="475" font-size="34" fill="#2d2925" font-weight="bold" text-anchor="middle" font-family="DejaVu Sans">A</text>
+<text x="1175.9422224541788" y="362.5121683048556" font-size="34" fill="#2d2925" font-weight="bold" text-anchor="middle" font-family="DejaVu Sans">B</text>
+<text x="1444.0577775458212" y="362.51216830485566" font-size="34" fill="#2d2925" font-weight="bold" text-anchor="middle" font-family="DejaVu Sans">C</text>
+<text x="1324" y="244.3205416230728" font-size="23" fill="#6d655b" font-weight="normal" text-anchor="start" font-family="DejaVu Sans">crowding shell r_in</text>
+<text x="1172.9711112270893" y="396.7560841524278" font-size="26" fill="#2d2925" font-weight="normal" text-anchor="start" font-family="DejaVu Sans">r_AB ≈ r_min</text>
+<text x="1395.0288887729107" y="396.75608415242783" font-size="26" fill="#2d2925" font-weight="normal" text-anchor="start" font-family="DejaVu Sans">r_AC ≈ r_min</text>
+<text x="1272.0" y="332.51216830485566" font-size="26" fill="#6d655b" font-weight="normal" text-anchor="start" font-family="DejaVu Sans">r_BC ≈ 1.72σ > r_cut</text>
+<text x="990" y="562" font-size="24" fill="#2d2925" font-weight="normal" text-anchor="start" font-family="DejaVu Sans">For pair A-B, sticker C crowds A but not B:</text>
+<text x="990" y="594" font-size="26" fill="#1f2a44" font-weight="bold" text-anchor="start" font-family="DejaVu Sans">C_AB^exc ≈ 1  →  W_AB = 2^(-p)</text>
+<text x="990" y="634" font-size="24" fill="#2d2925" font-weight="normal" text-anchor="start" font-family="DejaVu Sans">For pair A-C, sticker B does the analogous thing:</text>
+<text x="990" y="666" font-size="26" fill="#1f2a44" font-weight="bold" text-anchor="start" font-family="DejaVu Sans">C_AC^exc ≈ 1  →  W_AC = 2^(-p)</text>
+<text x="990" y="706" font-size="23" fill="#d46a3d" font-weight="bold" text-anchor="start" font-family="DejaVu Sans">Two contacts exist simultaneously, but both are shallow.</text>
+<text x="118" y="860" font-size="34" fill="#8e3f18" font-weight="bold" text-anchor="start" font-family="DejaVu Sans">Qualitative explanation</text>
+<text x="118" y="900" font-size="24" fill="#2d2925" font-weight="normal" text-anchor="start" font-family="DejaVu Sans">No special radial hump is inserted into U(r).</text>
+<text x="118" y="934" font-size="24" fill="#2d2925" font-weight="normal" text-anchor="start" font-family="DejaVu Sans">As C binds A, the old A-B well is weakened before the swap is complete.</text>
+<text x="118" y="968" font-size="24" fill="#2d2925" font-weight="normal" text-anchor="start" font-family="DejaVu Sans">The hub intermediate has two contacts, but with p = 4 each is only 1/16 as deep.</text>
+<text x="118" y="1002" font-size="24" fill="#2d2925" font-weight="normal" text-anchor="start" font-family="DejaVu Sans">That is why the associative route carries an energetic penalty even without an explicit barrier term.</text>
+<text x="1148" y="860" font-size="32" fill="#1f2a44" font-weight="bold" text-anchor="start" font-family="DejaVu Sans">Estimate used on the previous slide</text>
+<text x="1148" y="900" font-size="24" fill="#2d2925" font-weight="normal" text-anchor="start" font-family="DejaVu Sans">E_initial ≈ U_min</text>
+<text x="1148" y="934" font-size="24" fill="#2d2925" font-weight="normal" text-anchor="start" font-family="DejaVu Sans">E_assoc ≈ 2 · 2^(-p) U_min</text>
+<text x="1148" y="968" font-size="24" fill="#2d2925" font-weight="normal" text-anchor="start" font-family="DejaVu Sans">ΔE_assoc ≈ E_assoc - E_initial</text>
+<text x="1148" y="998" font-size="23" fill="#d46a3d" font-weight="bold" text-anchor="start" font-family="DejaVu Sans">p = 4  →  ΔE_assoc ≈ 0.595 eps</text>
+<text x="1830" y="1036" font-size="22" fill="#8b8277" font-weight="normal" text-anchor="end" font-family="DejaVu Sans">Chosen so A-B and A-C are near r_min while B-C stays beyond r_cut.</text>
+</svg>

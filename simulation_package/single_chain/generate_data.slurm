@@ -2,14 +2,14 @@
 #SBATCH --job-name=reactiveLJ_single_chain_gen
 #SBATCH --partition=gpu
 #SBATCH --gres=gpu:1
-#SBATCH --time=01:02:00
+#SBATCH --time=02:00:00
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=16G
-#SBATCH --array=0-59%24
+#SBATCH --array=0-49%24
 #SBATCH --output=logs/generate_data_%A_%a.out
 
 # NOTE:
-# - This script assumes 6 epsilon values and 10 replicates each (60 total tasks).
+# - This script assumes 5 epsilon values and 10 replicates each (50 total tasks).
 # - If you change N_REP below, update the --array range accordingly.
 
 module purge
@@ -38,7 +38,7 @@ fi
 cd "${WORK_DIR}"
 mkdir -p logs
 
-EPSILONS=(3 6 9 12 15 18)
+EPSILONS=(0 6 12 15 18)
 N_REP=${N_REP:-10}
 TOTAL=$(( ${#EPSILONS[@]} * N_REP ))
 
@@ -46,9 +46,11 @@ TOTAL=$(( ${#EPSILONS[@]} * N_REP ))
 FRAME_STEPS=${FRAME_STEPS:-10000}
 UNSTICKY_EQ_STEPS=${UNSTICKY_EQ_STEPS:-100000}
 REACTIVE_EQ_STEPS=${REACTIVE_EQ_STEPS:-1000000}
-PROD_STEPS=${PROD_STEPS:-1000000}
-# Per request, default to equal-length no-output equilibration immediately before production.
-PRE_PROD_EQ_STEPS=${PRE_PROD_EQ_STEPS:-${PROD_STEPS}}
+PROD_STEPS=${PROD_STEPS:-10000000}
+# Use a substantial no-output pre-production equilibration, but shorter than the
+# final production window since the single-chain workflow is not targeting melt
+# stress relaxation.
+PRE_PROD_EQ_STEPS=${PRE_PROD_EQ_STEPS:-5000000}
 WEAKENING_EXPONENT=${WEAKENING_EXPONENT:-4}
 CHAIN_LENGTH=${CHAIN_LENGTH:-400}
 STICKERS_PER_CHAIN=${STICKERS_PER_CHAIN:-40}

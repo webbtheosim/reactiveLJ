@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=reactiveLJ_analysis
 #SBATCH --time=06:00:00
-#SBATCH --cpus-per-task=64
+#SBATCH --cpus-per-task=49
 #SBATCH --mem=64G
 #SBATCH --nodes=1
 #SBATCH --output=logs/run_analysis_%j.out
@@ -32,6 +32,8 @@ if [[ ! -f "${WORK_DIR}/analysis/analyze_trajectories.py" ]]; then
     WORK_DIR="${SCRIPT_DIR}"
 fi
 WORK_DIR="$(cd "${WORK_DIR}" && pwd)"
+REPO_ROOT="$(cd "${WORK_DIR}/../.." && pwd)"
+export PYTHONPATH="${REPO_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 log "Step 5/8: Changing directory to ${WORK_DIR}"
 cd "${WORK_DIR}"
 log "Step 6/8: Ensuring logs directory exists"
@@ -42,10 +44,7 @@ ANALYSIS_START_TS=$(date +%s)
 python -u "${WORK_DIR}/analysis/analyze_trajectories.py" \
     --input-root "${WORK_DIR}/data_generation/outputs" \
     --output-dir "${WORK_DIR}/analysis/results" \
-    --analysis-stride 1 \
-    --max-lag-frames 500000 \
-    --analyses msd stress_modulus \
-    --stress-max-runtime-fraction 0.5
+    --analysis-stride 1
 
 ANALYSIS_END_TS=$(date +%s)
 log "Step 7/8 complete: Analysis finished in $((ANALYSIS_END_TS - ANALYSIS_START_TS)) seconds"

@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=reactiveLJ_single_chain_analysis
-#SBATCH --time=01:02:00
+#SBATCH --time=02:00:00
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=4G
 #SBATCH --nodes=1
@@ -47,11 +47,14 @@ cd "${WORK_DIR}"
 log "Step 6/8: Ensuring logs directory exists"
 mkdir -p logs
 
+MAX_LAG_FRAMES=${MAX_LAG_FRAMES:-500}
+
 log "Step 7/8: Starting single-chain trajectory analysis"
 ANALYSIS_START_TS=$(date +%s)
 python -u "${WORK_DIR}/analysis/analyze_trajectories.py" \
     --input-root "${WORK_DIR}/data_generation/outputs" \
-    --output-dir "${WORK_DIR}/analysis/results"
+    --output-dir "${WORK_DIR}/analysis/results" \
+    --max-lag-frames "${MAX_LAG_FRAMES}"
 ANALYSIS_END_TS=$(date +%s)
 log "Step 7/8 complete: Analysis finished in $((ANALYSIS_END_TS - ANALYSIS_START_TS)) seconds"
 

@@ -11,7 +11,7 @@ import numpy as np
 from scipy.optimize import curve_fit
 
 
-@numba.njit(cache=True)
+@numba.njit(cache=False)
 def _intersection_size_sorted(a: np.ndarray, b: np.ndarray) -> int:
     """Count |a ∩ b| exactly for sorted unique int64 arrays."""
     i = 0
@@ -32,35 +32,41 @@ def _intersection_size_sorted(a: np.ndarray, b: np.ndarray) -> int:
 
 
 @dataclass
-class CorrelationAccumulator:
-    """Accumulate correlations using sorted bond-ID arrays.
-
-    This preserves the exact set-overlap math of the previous set-based
-    implementation while avoiding repeated Python set intersections.
-    """
+class MultiTauSetCorrelationAccumulator:
+    """Accumulate exact set overlaps on a logarithmic multi-tau lag grid."""
     max_lag: int
+    p: int = 16
+    m: int = 2
+    S: int = 40
 
     def __post_init__(self) -> None:
-        self.numerators = np.zeros(self.max_lag, dtype=np.float64)
-        self.denominators = np.zeros(self.max_lag, dtype=np.float64)
-        self._buffer: List[np.ndarray] = []
+        self.lag_indices = multitau_positive_lag_indices(
+            self.max_lag,
+            p=self.p,
+            m=self.m,
+            S=self.S,
+        )
+        self.numerators = np.zeros(self.lag_indices.size, dtype=np.float64)
+        self.denominators = np.zeros(self.lag_indices.size, dtype=np.float64)
+        self._buffer: List[np.ndarray | None] = [None] * max(self.max_lag, 1)
+        self._cursor = 0
+        self._filled = 0
 
     def update(self, current_ids: np.ndarray) -> None:
         current = np.asarray(current_ids, dtype=np.int64)
-
-        # Compare with previous bond sets in reverse (lag 1 = most recent).
-        for lag, prev_ids in enumerate(reversed(self._buffer), start=1):
-            if lag > self.max_lag:
+        for idx, lag in enumerate(self.lag_indices):
+            if lag > self._filled:
                 break
-            idx = lag - 1
+            prev_ids = self._buffer[(self._cursor - lag) % len(self._buffer)]
+            if prev_ids is None:
+                continue
             if prev_ids.size > 0:
                 self.numerators[idx] += _intersection_size_sorted(prev_ids, current)
                 self.denominators[idx] += prev_ids.size
 
-        # Push current bond IDs into the buffer.
-        self._buffer.append(current)
-        if len(self._buffer) > self.max_lag:
-            self._buffer.pop(0)
+        self._buffer[self._cursor] = current
+        self._cursor = (self._cursor + 1) % len(self._buffer)
+        self._filled = min(self._filled + 1, self.max_lag)
 
     def correlation(self) -> np.ndarray:
         corr = np.zeros_like(self.numerators)
@@ -73,6 +79,34 @@ class CorrelationAccumulator:
         if not np.any(populated):
             return 0
         return int(np.max(np.flatnonzero(populated))) + 1
+
+
+def multitau_positive_lag_indices(
+    max_lag: int,
+    p: int = 16,
+    m: int = 2,
+    S: int = 40,
+) -> np.ndarray:
+    """Return strictly positive lag indices on a multi-tau grid."""
+    if max_lag < 1:
+        return np.empty((0,), dtype=np.int64)
+    if p % m != 0:
+        raise ValueError("p must be divisible by m")
+
+    p_m = p // m
+    lag_scale = 1
+    lags: List[int] = []
+    for level in range(S):
+        j_start = 1 if level == 0 else p_m
+        j_stop = min(p, max_lag // lag_scale + 1)
+        if j_start >= j_stop:
+            break
+        for j in range(j_start, j_stop):
+            lags.append(j * lag_scale)
+        lag_scale *= m
+        if lag_scale > max_lag:
+            break
+    return np.asarray(lags, dtype=np.int64)
 
 
 def compute_r_thresh(sigma: float = 1.0) -> float:
@@ -92,21 +126,19 @@ def reactive_weight(distance: float, inner: float, outer: float) -> float:
 
 def find_sticker_neighbor_pairs(
     positions: np.ndarray,
-    sticker_ids: np.ndarray,
     box_length: float,
     cutoff: float,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Return local sticker-index pairs and distances within ``cutoff``."""
-    sticker_ids_arr = np.asarray(sticker_ids, dtype=np.int32)
     empty_idx = np.empty((0,), dtype=np.int32)
     empty_dist = np.empty((0,), dtype=np.float64)
-    if sticker_ids_arr.size < 2 or cutoff <= 0.0:
+    positions_arr = np.asarray(positions, dtype=np.float32)
+    if positions_arr.shape[0] < 2 or cutoff <= 0.0:
         return empty_idx, empty_idx.copy(), empty_dist
 
-    sticker_positions = np.asarray(positions[sticker_ids_arr], dtype=np.float32)
-    query = freud.locality.AABBQuery(freud.box.Box.cube(box_length), sticker_positions)
+    query = freud.locality.AABBQuery(freud.box.Box.cube(box_length), positions_arr)
     nlist = query.query(
-        sticker_positions,
+        positions_arr,
         dict(mode="ball", r_max=float(cutoff), exclude_ii=True),
     ).toNeighborList()
 
@@ -123,19 +155,15 @@ def find_sticker_neighbor_pairs(
 
 def find_sticker_bonds(
     positions: np.ndarray,
-    sticker_ids: np.ndarray,
     box_length: float,
     cutoff: float,
 ) -> set:
     """Identify sticker-sticker bonds based on a distance threshold."""
-    pair_i, pair_j, _ = find_sticker_neighbor_pairs(
-        positions, sticker_ids, box_length, cutoff
-    )
+    pair_i, pair_j, _ = find_sticker_neighbor_pairs(positions, box_length, cutoff)
     bonds: set = set()
-    sticker_ids_arr = np.asarray(sticker_ids, dtype=np.int32)
     for i_idx, j_idx in zip(pair_i, pair_j):
-        i_global = int(sticker_ids_arr[i_idx])
-        j_global = int(sticker_ids_arr[j_idx])
+        i_global = int(i_idx)
+        j_global = int(j_idx)
         bonds.add(
             (i_global, j_global) if i_global < j_global else (j_global, i_global)
         )

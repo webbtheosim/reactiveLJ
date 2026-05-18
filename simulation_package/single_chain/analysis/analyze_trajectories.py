@@ -10,10 +10,16 @@ from collections import defaultdict
 from datetime import datetime
 from typing import Dict, List, Tuple
 
-import matplotlib
-import numpy as np
 import gsd.hoomd
+import numpy as np
 from joblib import Parallel, delayed
+
+_CACHE_ROOT = os.path.join("/tmp", f"single-chain-analysis-cache-{os.getuid()}")
+os.environ.setdefault("MPLCONFIGDIR", os.path.join(_CACHE_ROOT, "matplotlib"))
+os.environ.setdefault("XDG_CACHE_HOME", os.path.join(_CACHE_ROOT, "xdg"))
+os.makedirs(os.environ["MPLCONFIGDIR"], exist_ok=True)
+os.makedirs(os.environ["XDG_CACHE_HOME"], exist_ok=True)
+import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -26,9 +32,14 @@ from analysis_utils import (
     compute_r_thresh,
     extract_semilog_linear_region,
     find_sticker_bonds,
-    fit_exponential,
     fit_exponential_semilog_linear_region,
 )
+
+
+PLOT_DPI = 1000
+TICK_FONTSIZE = 8
+LABEL_FONTSIZE = 10
+LEGEND_FONTSIZE = 8
 
 
 def log(message: str) -> None:
@@ -110,6 +121,16 @@ def write_timeseries_quantiles(
             handle.write(f"{t:.6e},{m:.6e},{lo:.6e},{hi:.6e}\n")
 
 
+def finite_array(values: np.ndarray) -> np.ndarray:
+    arr = np.asarray(values, dtype=np.float64)
+    return arr[np.isfinite(arr)]
+
+
+def style_axes(ax) -> None:
+    ax.tick_params(labelsize=TICK_FONTSIZE)
+    ax.grid(alpha=0.2)
+
+
 def write_autocorr_fit_plot(
     path: str,
     time: np.ndarray,
@@ -125,9 +146,9 @@ def write_autocorr_fit_plot(
     tau_fit = fit_exponential_semilog_linear_region(time, median)
     fit_time, _ = extract_semilog_linear_region(time, median)
 
-    fig, ax = plt.subplots(figsize=(6.2, 4.2))
+    fig, ax = plt.subplots(figsize=(3.3, 3.0))
     ax.fill_between(time, q1, q3, color="#9e9e9e", alpha=0.35, label="IQR")
-    ax.plot(time, median, color="#121212", lw=2.0, label="Median")
+    ax.plot(time, median, color="#121212", lw=1.7, label="median")
 
     if np.isfinite(tau_fit) and fit_time.size > 0:
         fit_curve = np.exp(-fit_time / tau_fit)
@@ -135,17 +156,17 @@ def write_autocorr_fit_plot(
             fit_time,
             fit_curve,
             color="#e77500",
-            lw=2.0,
-            label=rf"$C_s(\Delta t)=\exp(-\Delta t/\tau),\ \tau={tau_fit:.3g}$",
+            lw=1.6,
+            label=rf"$\tau={tau_fit:.3g}$",
         )
 
-    ax.set_xlabel("Time lag")
-    ax.set_ylabel(y_label)
-    ax.set_ylim(0.0, 1.0)
-    ax.grid(alpha=0.2)
-    ax.legend(frameon=False)
+    ax.set_xlabel("time lag", fontsize=LABEL_FONTSIZE)
+    ax.set_ylabel(y_label, fontsize=LABEL_FONTSIZE)
+    ax.set_ylim(0.0, 1.05)
+    ax.legend(frameon=False, fontsize=LEGEND_FONTSIZE)
+    style_axes(ax)
     fig.tight_layout()
-    fig.savefig(path, dpi=220)
+    fig.savefig(path, dpi=PLOT_DPI)
     plt.close(fig)
 
 
@@ -160,15 +181,15 @@ def write_rg_summary_plot(
     q1 = np.percentile(rg_values, 25.0, axis=0)
     q3 = np.percentile(rg_values, 75.0, axis=0)
 
-    fig, ax = plt.subplots(figsize=(6.4, 4.2))
+    fig, ax = plt.subplots(figsize=(3.3, 3.0))
     ax.fill_between(time, q1, q3, color="#9e9e9e", alpha=0.35, label="IQR")
-    ax.plot(time, median, color="#121212", lw=2.0, label="Median")
-    ax.set_xlabel("Time")
-    ax.set_ylabel(r"$R_\mathrm{g}$")
-    ax.grid(alpha=0.2)
-    ax.legend(frameon=False)
+    ax.plot(time, median, color="#121212", lw=1.7, label="median")
+    ax.set_xlabel("time", fontsize=LABEL_FONTSIZE)
+    ax.set_ylabel(r"$R_\mathrm{g}$", fontsize=LABEL_FONTSIZE)
+    ax.legend(frameon=False, fontsize=LEGEND_FONTSIZE)
+    style_axes(ax)
     fig.tight_layout()
-    fig.savefig(path, dpi=220)
+    fig.savefig(path, dpi=PLOT_DPI)
     plt.close(fig)
 
 
@@ -179,56 +200,69 @@ def write_scalar_violin_vs_epsilon_plot(
     title: str,
     y_label: str,
     ylim: Tuple[float, float] | None = None,
+    *,
+    figsize: Tuple[float, float] = (3.3, 3.3),
+    dpi: int = PLOT_DPI,
+    x_label: str = r"$\varepsilon_\mathrm{reactiveLJ}$",
+    tick_label_size: float | None = TICK_FONTSIZE,
+    axis_label_size: float | None = LABEL_FONTSIZE,
+    body_facecolor: str = "#e77500",
+    body_edgecolor: str = "#121212",
+    body_alpha: float = 0.45,
+    median_color: str = "#121212",
+    iqr_lw: float = 1.7,
+    median_lw: float = 1.4,
+    median_marker_size: float = 14.0,
 ) -> None:
     del title  # Plot titles intentionally omitted for publication styling.
-    violin_data: List[np.ndarray] = []
-    positions: List[float] = []
+    processed: List[Tuple[float, np.ndarray]] = []
     for eps, values in zip(epsilon_values, data):
-        arr = np.asarray(values, dtype=np.float64)
-        arr = arr[np.isfinite(arr)]
+        arr = finite_array(values)
         if arr.size == 0:
             continue
-        positions.append(float(eps))
-        violin_data.append(arr)
+        processed.append((float(eps), arr))
 
-    if not violin_data:
+    if not processed:
         return
 
-    fig, ax = plt.subplots(figsize=(6.8, 4.4))
-    parts = ax.violinplot(violin_data, positions=positions, widths=0.6, showextrema=False)
-    for body in parts.get("bodies", []):
-        body.set_facecolor("#9e9e9e")
-        body.set_edgecolor("#6f6f6f")
-        body.set_alpha(0.5)
+    fig, ax = plt.subplots(figsize=figsize)
+    violin_positions = [eps for eps, values in processed if values.size > 1]
+    violin_data = [values for _, values in processed if values.size > 1]
+    if violin_data:
+        parts = ax.violinplot(violin_data, positions=violin_positions, widths=0.6, showextrema=False)
+        for body in parts.get("bodies", []):
+            body.set_facecolor(body_facecolor)
+            body.set_edgecolor(body_edgecolor)
+            body.set_alpha(body_alpha)
 
+    positions: List[float] = []
     medians: List[float] = []
-    for eps, values in zip(positions, violin_data):
+    for eps, values in processed:
         q1 = float(np.percentile(values, 25.0))
         q3 = float(np.percentile(values, 75.0))
         med = float(np.median(values))
-        ax.vlines(eps, q1, q3, color="#2b2b2b", lw=2.0)
-        ax.scatter([eps], [med], color="#2b2b2b", s=18, zorder=3)
+        ax.vlines(eps, q1, q3, color=median_color, lw=iqr_lw)
+        ax.scatter([eps], [med], color=median_color, s=median_marker_size, zorder=3)
+        positions.append(eps)
         medians.append(med)
 
-    if positions:
-        ax.plot(
-            positions,
-            medians,
-            color="#2b2b2b",
-            lw=1.8,
-            alpha=0.9,
-            zorder=2,
-        )
+    ax.plot(positions, medians, color=median_color, lw=median_lw, alpha=0.9)
 
-    ax.set_xlabel("epsilon")
-    ax.set_ylabel(y_label)
+    if axis_label_size is None:
+        ax.set_xlabel(x_label)
+        ax.set_ylabel(y_label)
+    else:
+        ax.set_xlabel(x_label, fontsize=axis_label_size)
+        ax.set_ylabel(y_label, fontsize=axis_label_size)
     ax.set_xticks(epsilon_values)
     ax.set_xticklabels([f"{eps:g}" for eps in epsilon_values])
     if ylim is not None:
         ax.set_ylim(*ylim)
-    ax.grid(alpha=0.2)
+    style_axes(ax)
+    if tick_label_size is not None:
+        ax.tick_params(axis="both", which="both", labelsize=tick_label_size)
     fig.tight_layout()
-    fig.savefig(path, dpi=220)
+    fig.savefig(path, dpi=dpi)
     plt.close(fig)
 
 
@@ -244,7 +278,7 @@ def write_dual_scalar_violin_vs_epsilon_plot(
     left_color: str,
     right_color: str,
 ) -> None:
-    del title, left_label, right_label  # Plot titles intentionally omitted for publication styling.
+    del title  # Plot titles intentionally omitted for publication styling.
     left_positions: List[float] = []
     left_violin_data: List[np.ndarray] = []
     left_medians: List[float] = []
@@ -255,10 +289,8 @@ def write_dual_scalar_violin_vs_epsilon_plot(
     width = 0.28
 
     for eps, left_vals, right_vals in zip(epsilon_values, data_left, data_right):
-        left_arr = np.asarray(left_vals, dtype=np.float64)
-        left_arr = left_arr[np.isfinite(left_arr)]
-        right_arr = np.asarray(right_vals, dtype=np.float64)
-        right_arr = right_arr[np.isfinite(right_arr)]
+        left_arr = finite_array(left_vals)
+        right_arr = finite_array(right_vals)
 
         if left_arr.size:
             left_positions.append(float(eps) - offset)
@@ -272,7 +304,7 @@ def write_dual_scalar_violin_vs_epsilon_plot(
     if not left_violin_data and not right_violin_data:
         return
 
-    fig, ax = plt.subplots(figsize=(7.2, 4.6))
+    fig, ax = plt.subplots(figsize=(3.6, 3.3))
 
     if left_violin_data:
         left_parts = ax.violinplot(
@@ -286,9 +318,17 @@ def write_dual_scalar_violin_vs_epsilon_plot(
             q1 = float(np.percentile(values, 25.0))
             q3 = float(np.percentile(values, 75.0))
             med = float(np.median(values))
-            ax.vlines(x, q1, q3, color=left_color, lw=2.0)
-            ax.scatter([x], [med], color=left_color, s=18, zorder=3)
-        ax.plot(left_positions, left_medians, color=left_color, lw=1.8, alpha=0.9, zorder=2)
+            ax.vlines(x, q1, q3, color=left_color, lw=1.7)
+            ax.scatter([x], [med], color=left_color, s=14, zorder=3)
+        ax.plot(
+            left_positions,
+            left_medians,
+            color=left_color,
+            lw=1.4,
+            alpha=0.9,
+            zorder=2,
+            label=left_label,
+        )
 
     if right_violin_data:
         right_parts = ax.violinplot(
@@ -302,24 +342,27 @@ def write_dual_scalar_violin_vs_epsilon_plot(
             q1 = float(np.percentile(values, 25.0))
             q3 = float(np.percentile(values, 75.0))
             med = float(np.median(values))
-            ax.vlines(x, q1, q3, color=right_color, lw=2.0)
-            ax.scatter([x], [med], color=right_color, s=18, zorder=3)
+            ax.vlines(x, q1, q3, color=right_color, lw=1.7)
+            ax.scatter([x], [med], color=right_color, s=14, zorder=3)
         ax.plot(
             right_positions,
             right_medians,
             color=right_color,
-            lw=1.8,
+            lw=1.4,
             alpha=0.9,
             zorder=2,
+            label=right_label,
         )
 
-    ax.set_xlabel("epsilon")
-    ax.set_ylabel(y_label)
+    ax.set_xlabel(r"$\varepsilon_\mathrm{reactiveLJ}$", fontsize=LABEL_FONTSIZE)
+    ax.set_ylabel(y_label, fontsize=LABEL_FONTSIZE)
     ax.set_xticks(epsilon_values)
     ax.set_xticklabels([f"{eps:g}" for eps in epsilon_values])
+    ax.tick_params(labelsize=TICK_FONTSIZE)
     ax.grid(alpha=0.2, axis="y")
+    ax.legend(frameon=False, fontsize=LEGEND_FONTSIZE)
     fig.tight_layout()
-    fig.savefig(path, dpi=220)
+    fig.savefig(path, dpi=PLOT_DPI)
     plt.close(fig)
 
 
@@ -334,20 +377,20 @@ def write_rg_time_vs_epsilon_plot(
 
     colors = plt.cm.Greys(np.linspace(0.25, 0.85, max(len(epsilon_values), 2)))
 
-    fig, ax = plt.subplots(figsize=(7.0, 4.6))
+    fig, ax = plt.subplots(figsize=(3.3, 3.3))
     for idx, eps in enumerate(epsilon_values):
         time = rg_time_by_eps.get(eps)
         med = rg_median_by_eps.get(eps)
         if time is None or med is None:
             continue
-        ax.plot(time, med, lw=2.0, color=colors[idx], label=f"eps={eps:g}")
+        ax.plot(time, med, lw=1.7, color=colors[idx], label=f"eps={eps:g}")
 
-    ax.set_xlabel("Time")
-    ax.set_ylabel(r"$R_\mathrm{g}$")
-    ax.grid(alpha=0.2)
-    ax.legend(frameon=False, ncol=2)
+    ax.set_xlabel("time", fontsize=LABEL_FONTSIZE)
+    ax.set_ylabel(r"$R_\mathrm{g}$", fontsize=LABEL_FONTSIZE)
+    ax.legend(frameon=False, ncol=2, fontsize=LEGEND_FONTSIZE)
+    style_axes(ax)
     fig.tight_layout()
-    fig.savefig(path, dpi=220)
+    fig.savefig(path, dpi=PLOT_DPI)
     plt.close(fig)
 
 
@@ -357,6 +400,10 @@ def write_median_iqr_line_vs_epsilon_plot(
     data: List[np.ndarray],
     y_label: str,
     ylim: Tuple[float, float] | None = None,
+    figsize: Tuple[float, float] = (3.3, 3.3),
+    dpi: int = PLOT_DPI,
+    yscale: str = "linear",
+    show_iqr: bool = True,
 ) -> None:
     if not epsilon_values:
         return
@@ -367,8 +414,9 @@ def write_median_iqr_line_vs_epsilon_plot(
     valid_eps: List[float] = []
 
     for eps, values in zip(epsilon_values, data):
-        arr = np.asarray(values, dtype=np.float64)
-        arr = arr[np.isfinite(arr)]
+        arr = finite_array(values)
+        if yscale == "log":
+            arr = arr[arr > 0.0]
         if arr.size == 0:
             continue
         valid_eps.append(float(eps))
@@ -384,19 +432,21 @@ def write_median_iqr_line_vs_epsilon_plot(
     q1 = np.asarray(q1s, dtype=np.float64)
     q3 = np.asarray(q3s, dtype=np.float64)
 
-    fig, ax = plt.subplots(figsize=(6.4, 4.2))
-    ax.fill_between(x, q1, q3, color="#9e9e9e", alpha=0.35, label="IQR")
-    ax.plot(x, med, color="#121212", lw=2.0, marker="o", ms=4.0, label="Median")
-    ax.set_xlabel("epsilon")
-    ax.set_ylabel(y_label)
+    fig, ax = plt.subplots(figsize=figsize)
+    if show_iqr:
+        ax.fill_between(x, q1, q3, color="#9e9e9e", alpha=0.35)
+    ax.plot(x, med, color="#121212", lw=1.7, marker="o", ms=3.5)
+    ax.set_xlabel(r"$\varepsilon_\mathrm{reactiveLJ}$", fontsize=LABEL_FONTSIZE)
+    ax.set_ylabel(y_label, fontsize=LABEL_FONTSIZE)
     ax.set_xticks(epsilon_values)
     ax.set_xticklabels([f"{eps:g}" for eps in epsilon_values])
+    if yscale != "linear":
+        ax.set_yscale(yscale)
     if ylim is not None:
         ax.set_ylim(*ylim)
-    ax.grid(alpha=0.2)
-    ax.legend(frameon=False)
+    style_axes(ax)
     fig.tight_layout()
-    fig.savefig(path, dpi=220)
+    fig.savefig(path, dpi=dpi)
     plt.close(fig)
 
 
@@ -470,7 +520,6 @@ def analyze_replicate(
             chain_length = n_particles
 
         n_stickers = int(sticker_ids.size)
-        sticker_set = set(sticker_ids.tolist())
         sticker_idx_map = np.full(n_particles, -1, dtype=np.int32)
         sticker_idx_map[sticker_ids] = np.arange(n_stickers, dtype=np.int32)
 
@@ -486,6 +535,7 @@ def analyze_replicate(
 
         bond_corr = CorrelationAccumulator(max_lag_frames)
 
+        raw_bond_count_series: List[float] = []
         bond_count_series: List[float] = []
         rg_series: List[float] = []
         end_to_end_series: List[float] = []
@@ -503,33 +553,46 @@ def analyze_replicate(
         free_sticker_time = 0.0
 
         prev_bonds: set | None = None
-        prev_open: set | None = None
-        prev_partners: Dict[int, set] | None = None
+        prev_open_count: int | None = None
+        prev_has_partner: np.ndarray | None = None
 
         for analyzed_idx, frame_idx in enumerate(range(0, n_frames, analysis_stride), start=1):
             frame = traj[frame_idx]
             positions = frame.particles.position
             images = getattr(frame.particles, "image", None)
 
-            bonds = find_sticker_bonds(positions, sticker_ids, box_length, r_thresh)
-            bond_corr.update(bonds)
-            bond_count_series.append(float(len(bonds)))
-
+            raw_bonds = find_sticker_bonds(positions, sticker_ids, box_length, r_thresh)
+            raw_bond_count_series.append(float(len(raw_bonds)))
+            paired_bonds: set = set()
             degrees = np.zeros(n_stickers, dtype=np.int32)
-            bonded_stickers: set = set()
-            partner_map: Dict[int, set] = defaultdict(set)
-            for i, j in bonds:
-                i_idx = sticker_idx_map[i]
-                j_idx = sticker_idx_map[j]
-                if i_idx >= 0:
-                    degrees[i_idx] += 1
-                if j_idx >= 0:
-                    degrees[j_idx] += 1
-                bonded_stickers.add(i)
-                bonded_stickers.add(j)
-                partner_map[i].add(j)
-                partner_map[j].add(i)
-                loop_length_series.append(abs(int(i) - int(j)))
+            if raw_bonds:
+                bond_array = np.asarray(list(raw_bonds), dtype=np.int64)
+                i_global = bond_array[:, 0]
+                j_global = bond_array[:, 1]
+                i_idx = sticker_idx_map[i_global]
+                j_idx = sticker_idx_map[j_global]
+
+                raw_degrees = np.zeros(n_stickers, dtype=np.int32)
+                np.add.at(raw_degrees, i_idx, 1)
+                np.add.at(raw_degrees, j_idx, 1)
+                paired_mask = (raw_degrees[i_idx] == 1) & (raw_degrees[j_idx] == 1)
+                if np.any(paired_mask):
+                    paired_array = bond_array[paired_mask]
+                    paired_bonds = set(
+                        zip(paired_array[:, 0].tolist(), paired_array[:, 1].tolist())
+                    )
+                    paired_i_idx = sticker_idx_map[paired_array[:, 0]]
+                    paired_j_idx = sticker_idx_map[paired_array[:, 1]]
+                    np.add.at(degrees, paired_i_idx, 1)
+                    np.add.at(degrees, paired_j_idx, 1)
+                    loop_length_series.extend(
+                        np.abs(paired_array[:, 0] - paired_array[:, 1]).tolist()
+                    )
+
+            bond_corr.update(paired_bonds)
+            bond_count_series.append(float(len(paired_bonds)))
+
+            current_has_partner = degrees > 0
 
             count0 = int(np.sum(degrees == 0))
             count1 = int(np.sum(degrees == 1))
@@ -551,33 +614,34 @@ def analyze_replicate(
             ree_val = float(np.linalg.norm(unwrapped[-1] - unwrapped[0]))
             end_to_end_series.append(ree_val)
 
-            open_stickers = sticker_set - bonded_stickers
+            open_count = count0
 
-            if prev_bonds is not None and prev_open is not None and prev_partners is not None:
-                new_bonds = bonds - prev_bonds
-                assoc = 0
-                dissoc = 0
-                for i, j in new_bonds:
-                    i_prev = prev_partners.get(i, set())
-                    j_prev = prev_partners.get(j, set())
-                    if (i_prev and (j not in i_prev)) or (j_prev and (i not in j_prev)):
-                        assoc += 1
-                    else:
-                        dissoc += 1
+            if prev_bonds is not None and prev_open_count is not None and prev_has_partner is not None:
+                new_bonds = paired_bonds - prev_bonds
+                if new_bonds:
+                    new_bond_array = np.asarray(list(new_bonds), dtype=np.int64)
+                    new_i_idx = sticker_idx_map[new_bond_array[:, 0]]
+                    new_j_idx = sticker_idx_map[new_bond_array[:, 1]]
+                    assoc_mask = prev_has_partner[new_i_idx] | prev_has_partner[new_j_idx]
+                    assoc = int(np.count_nonzero(assoc_mask))
+                    dissoc = int(new_bond_array.shape[0] - assoc)
+                else:
+                    assoc = 0
+                    dissoc = 0
 
                 assoc_events_total += assoc
                 total_transition_time += frame_dt
 
-                n_m = len(prev_open)
+                n_m = prev_open_count
                 free_sticker_time += n_m * frame_dt
                 if n_m > 0:
                     assoc_rate_sum += assoc / (n_m * frame_dt)
                     dissoc_rate_sum += dissoc / (n_m * frame_dt)
                     rate_count += 1
 
-            prev_bonds = bonds
-            prev_open = open_stickers
-            prev_partners = partner_map
+            prev_bonds = paired_bonds
+            prev_open_count = open_count
+            prev_has_partner = current_has_partner
 
             if progress_label is not None and (
                 analyzed_idx % progress_interval == 0 or analyzed_idx == n_analyzed
@@ -615,6 +679,7 @@ def analyze_replicate(
             "tau_s": tau_s,
             "rg_mean": float(np.mean(rg_arr)) if rg_arr.size else float("nan"),
             "end_to_end_mean": float(np.mean(ree_arr)) if ree_arr.size else float("nan"),
+            "raw_bond_count_series": np.asarray(raw_bond_count_series, dtype=np.float64),
             "bond_count_series": bond_count_arr,
             "rg_time": np.arange(len(rg_arr), dtype=np.float64) * frame_dt,
             "rg_series": rg_arr,
@@ -931,6 +996,7 @@ def main() -> None:
             epsilon_values,
             tau_s_data,
             y_label="bond persistence time",
+            yscale="log",
         )
         write_median_iqr_line_vs_epsilon_plot(
             os.path.join(args.output_dir, "sticker_fraction_bond0_violin.png"),

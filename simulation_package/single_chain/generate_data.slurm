@@ -1,16 +1,19 @@
 #!/bin/bash
 #SBATCH --job-name=reactiveLJ_single_chain_gen
-#SBATCH --partition=gpu
-#SBATCH --gres=gpu:1
-#SBATCH --time=02:00:00
+#SBATCH --time=24:00:00
+#SBATCH --nodes=1
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=16G
-#SBATCH --array=0-49%24
+#SBATCH --array=0-49
+#SBATCH --requeue
+#SBATCH --open-mode=append
 #SBATCH --output=logs/generate_data_%A_%a.out
 
 # NOTE:
 # - This script assumes 5 epsilon values and 10 replicates each (50 total tasks).
-# - If you change N_REP below, update the --array range accordingly.
+# - Jobs checkpoint and requeue until each replicate reaches the full target.
+# - If you change EPSILONS or N_REP below, update the --array range accordingly.
+# Set 0-49 to run all replicates.
 
 module purge
 source ~/.bashrc
@@ -46,7 +49,7 @@ TOTAL=$(( ${#EPSILONS[@]} * N_REP ))
 FRAME_STEPS=${FRAME_STEPS:-10000}
 UNSTICKY_EQ_STEPS=${UNSTICKY_EQ_STEPS:-100000}
 REACTIVE_EQ_STEPS=${REACTIVE_EQ_STEPS:-1000000}
-PROD_STEPS=${PROD_STEPS:-10000000}
+PROD_STEPS=${PROD_STEPS:-100000000}
 # Use a substantial no-output pre-production equilibration, but shorter than the
 # final production window since the single-chain workflow is not targeting melt
 # stress relaxation.
@@ -55,6 +58,11 @@ WEAKENING_EXPONENT=${WEAKENING_EXPONENT:-4}
 CHAIN_LENGTH=${CHAIN_LENGTH:-400}
 STICKERS_PER_CHAIN=${STICKERS_PER_CHAIN:-40}
 BOX_LENGTH=${BOX_LENGTH:-100}
+DEVICE=${DEVICE:-cpu}
+OUTPUT_ROOT=${OUTPUT_ROOT:-${WORK_DIR}/data_generation/outputs}
+WALLTIME_CAP_SECONDS=${WALLTIME_CAP_SECONDS:-86340}
+WALLTIME_SAFETY_BUFFER_SECONDS=${WALLTIME_SAFETY_BUFFER_SECONDS:-60}
+PRODUCTION_CHUNK_STEPS=${PRODUCTION_CHUNK_STEPS:-1000000}
 
 TASK_ID=${SLURM_ARRAY_TASK_ID}
 if [[ ${TASK_ID} -ge ${TOTAL} ]]; then
@@ -67,16 +75,36 @@ REP_INDEX=$(( TASK_ID % N_REP ))
 EPS=${EPSILONS[$EPS_INDEX]}
 REP=$(( REP_INDEX + 1 ))
 
+set +e
 python "${WORK_DIR}/data_generation/run_reactive_lj.py" \
     --epsilon "${EPS}" \
     --replicate "${REP}" \
-    --output-root "${WORK_DIR}/data_generation/outputs" \
+    --output-root "${OUTPUT_ROOT}" \
     --chain-length "${CHAIN_LENGTH}" \
     --stickers-per-chain "${STICKERS_PER_CHAIN}" \
     --box-length "${BOX_LENGTH}" \
+    --device "${DEVICE}" \
     --weakening-exponent "${WEAKENING_EXPONENT}" \
     --frame-steps "${FRAME_STEPS}" \
     --unsticky-equil-steps "${UNSTICKY_EQ_STEPS}" \
     --reactive-equil-steps "${REACTIVE_EQ_STEPS}" \
     --pre-production-equil-steps "${PRE_PROD_EQ_STEPS}" \
-    --production-steps "${PROD_STEPS}"
+    --production-steps "${PROD_STEPS}" \
+    --production-chunk-steps "${PRODUCTION_CHUNK_STEPS}" \
+    --walltime-limit-seconds "${WALLTIME_CAP_SECONDS}" \
+    --walltime-safety-buffer-seconds "${WALLTIME_SAFETY_BUFFER_SECONDS}" \
+    --resume
+status=$?
+set -e
+
+if [[ ${status} -eq 3 ]]; then
+    REQUEUE_TARGET="${SLURM_JOB_ID}"
+    if [[ -n "${SLURM_ARRAY_JOB_ID:-}" && -n "${SLURM_ARRAY_TASK_ID:-}" ]]; then
+        REQUEUE_TARGET="${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}"
+    fi
+    echo "Checkpointed before walltime cap; requeueing ${REQUEUE_TARGET}."
+    scontrol requeue "${REQUEUE_TARGET}"
+    exit 0
+fi
+
+exit "${status}"

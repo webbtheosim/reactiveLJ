@@ -1,0 +1,34 @@
+{
+  "bonded_pair_count": {
+    "mean": 15.875,
+    "stderr": 0.13903037238116148
+  },
+  "associative_exchange_rate_R_a": {
+    "mean": 0.00012831530821221543,
+    "stderr": 2.3885290940093004e-05
+  },
+  "passive_dimerization_rate_R_d": {
+    "mean": 0.001634978073981511,
+    "stderr": 6.884772463515571e-05
+  },
+  "swap_rate": {
+    "mean": 0.0010505050505050504,
+    "stderr": 0.0001970200516946504
+  },
+  "swap_rate_per_free_sticker": {
+    "mean": 0.00012859601004993926,
+    "stderr": 2.34641615317819e-05
+  },
+  "bond_persistence_time_tau_s": {
+    "mean": 2726.302203872362,
+    "stderr": 204.1688697722585
+  },
+  "radius_of_gyration_R_g": {
+    "mean": 31.519582861322373,
+    "stderr": 5.287590039437799
+  },
+  "end_to_end_distance": {
+    "mean": 77.04702456398158,
+    "stderr": 12.267632515181187
+  }
+}

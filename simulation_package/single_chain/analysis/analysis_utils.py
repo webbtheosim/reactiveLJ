@@ -7,6 +7,7 @@ from typing import Dict, Iterable, List, Tuple
 
 import numpy as np
 from scipy.optimize import curve_fit
+from scipy.spatial import cKDTree
 
 
 @dataclass
@@ -102,35 +103,30 @@ def find_sticker_bonds(
 ) -> set:
     """Identify sticker-sticker bonds based on a distance threshold."""
     sticker_positions = positions[sticker_ids]
-    cell_particles, n_cells = build_cell_list(sticker_positions, box_length, cutoff)
+    if sticker_positions.size == 0:
+        return set()
+
+    # HOOMD stores positions in [-L/2, L/2); cKDTree requires [0, L) for periodic boxes.
+    wrapped_positions = (sticker_positions + 0.5 * box_length) % box_length
+    tree = cKDTree(wrapped_positions, boxsize=box_length)
+    pairs = tree.query_pairs(cutoff, output_type="ndarray")
+    if pairs.size == 0:
+        return set()
+
+    dx = sticker_positions[pairs[:, 0]] - sticker_positions[pairs[:, 1]]
+    dx = minimum_image(dx, box_length)
     cutoff_sq = cutoff * cutoff
+    dist_sq = np.einsum("ij,ij->i", dx, dx)
+    mask = dist_sq < cutoff_sq
+    if not np.any(mask):
+        return set()
 
-    bonds: set = set()
-
-    for cell_index, particle_list in enumerate(cell_particles):
-        if not particle_list:
-            continue
-
-        for neighbor_cell in iter_neighbor_cells(cell_index, n_cells):
-            if neighbor_cell < cell_index:
-                continue
-            neighbor_list = cell_particles[neighbor_cell]
-            if not neighbor_list:
-                continue
-
-            for i_idx in particle_list:
-                for j_idx in neighbor_list:
-                    if neighbor_cell == cell_index and j_idx <= i_idx:
-                        continue
-
-                    dx = sticker_positions[i_idx] - sticker_positions[j_idx]
-                    dx = minimum_image(dx, box_length)
-                    if np.dot(dx, dx) < cutoff_sq:
-                        i_global = int(sticker_ids[i_idx])
-                        j_global = int(sticker_ids[j_idx])
-                        bonds.add((i_global, j_global) if i_global < j_global else (j_global, i_global))
-
-    return bonds
+    pairs = pairs[mask]
+    i_global = sticker_ids[pairs[:, 0]].astype(np.int64)
+    j_global = sticker_ids[pairs[:, 1]].astype(np.int64)
+    low = np.minimum(i_global, j_global)
+    high = np.maximum(i_global, j_global)
+    return set(zip(low.tolist(), high.tolist()))
 
 
 class UnionFind:

@@ -4,7 +4,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --time=01:02:00
 #SBATCH --cpus-per-task=1
-#SBATCH --mem=2G
+#SBATCH --mem=1G
 #SBATCH --array=0-9
 #SBATCH --open-mode=append
 #SBATCH --output=logs/generate_data_%A_%a.out

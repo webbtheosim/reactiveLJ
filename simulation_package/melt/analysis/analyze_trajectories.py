@@ -31,12 +31,17 @@ FALLBACK_TAU_R0 = 4041.0
 MAX_ANALYSIS_LAG_TAU_R0 = 1000.0
 MAX_ANALYSIS_LAG_TIME = FALLBACK_TAU_R0 * MAX_ANALYSIS_LAG_TAU_R0
 DEFAULT_STRESS_MAX_RUNTIME_FRACTION = 1.0 / 3.0
+DEFAULT_WEAKENING_EXPONENT = 4.0
 BOND_TAU_EPSILON_PLOT = "sticky_bond_lifetime_vs_epsilon.svg"
+MIN_RESOLVED_BOND_TAU_EPSILON = 12.0
 LEGACY_BOND_TAU_PLOT_FILES = (
     "ln_bond_tau_vs_epsilon.png",
     "ln_bond_tau_vs_epsilon.svg",
     "bond_tau_vs_epsilon.png",
 )
+INTRA_INTER_RATIO_EPSILON_PLOT = "intra_to_inter_bond_ratio_vs_epsilon.svg"
+INTRA_INTER_RATIO_LABEL = r"$\psi$"
+INTRA_INTER_RATIO_FIGSIZE = (3.3, 3.3 / 2.0)
 ANALYSIS_CHOICES = (
     "all",
     "msd",
@@ -56,6 +61,16 @@ from analysis_utils import (
     fit_exponential,
     fit_exponential_semilog_linear_region,
 )
+from make_exchange_rate_plot import (
+    DEFAULT_OUTPUT_NAME as EXCHANGE_RATE_EPSILON_PLOT,
+    DUMP_INTERVAL_TAU_LJ as EXCHANGE_RATE_DUMP_INTERVAL_TAU_LJ,
+    write_exchange_rate_plot,
+)
+from make_gelation_epsilon_plot import (
+    DEFAULT_OUTPUT_NAME as GELATION_EPSILON_PLOT,
+    summarize_replicate_points as summarize_gelation_epsilon_points,
+    write_gelation_epsilon_plot,
+)
 
 def log(message: str) -> None:
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -66,7 +81,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Analyze ReactiveLJ trajectories.")
     parser.add_argument(
         "--input-root",
-        default="../data_generation/outputs",
+        default="../data_generation/outputs_clean",
         help="Root directory containing eps_*/rep_*/trajectory.gsd sticker trajectories.",
     )
     parser.add_argument(
@@ -96,6 +111,33 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Maximum stress-modulus lag as a fraction of the virial-log runtime "
             "(default: 1/3)."
+        ),
+    )
+    parser.add_argument(
+        "--weakening-exponents",
+        nargs="+",
+        type=float,
+        default=None,
+        help=(
+            "Only analyze runs whose weakening exponent p matches these values. "
+            "Runs without metadata or path p_* default to p=4."
+        ),
+    )
+    parser.add_argument(
+        "--plot-x-min-time",
+        type=float,
+        default=None,
+        help=(
+            "Optional left x-axis limit in tau_LJ for shared MSD/stress plots. "
+            "When omitted, use the shortest resolved stress-modulus lag."
+        ),
+    )
+    parser.add_argument(
+        "--plot-x-max-tau-r0",
+        type=float,
+        default=MAX_ANALYSIS_LAG_TAU_R0,
+        help=(
+            "Right x-axis limit for shared MSD/stress plots in tau/tau_R^0 units."
         ),
     )
     parser.add_argument(
@@ -137,16 +179,68 @@ def resolve_analysis_selection(
     )
 
 
-def discover_runs(input_root: str) -> List[Tuple[str, str]]:
+def gsd_frame_count_or_none(gsd_path: str, input_root: str) -> int | None:
+    try:
+        with gsd.hoomd.open(gsd_path, "r") as traj:
+            return len(traj)
+    except (RuntimeError, OSError) as exc:
+        rel_path = os.path.relpath(gsd_path, input_root)
+        log(f"Skipping corrupt GSD file {rel_path}: {exc}")
+        return None
+
+
+def is_corrupt_gsd_error(exc: BaseException) -> bool:
+    return "Corrupt GSD file" in str(exc)
+
+
+def parse_prefixed_float_from_path(path: str, prefix: str) -> float | None:
+    for part in reversed(os.path.normpath(path).split(os.sep)):
+        if not part.startswith(prefix):
+            continue
+        try:
+            return float(part[len(prefix) :])
+        except ValueError:
+            continue
+    return None
+
+
+def infer_weakening_exponent(run_dir: str, metadata: Dict) -> float:
+    value = metadata.get("weakening_exponent")
+    if value is None:
+        value = parse_prefixed_float_from_path(run_dir, "p_")
+    if value is None:
+        value = DEFAULT_WEAKENING_EXPONENT
+    return float(value)
+
+
+def value_matches_selection(value: float, selected_values: List[float] | None) -> bool:
+    if selected_values is None:
+        return True
+    return any(
+        np.isclose(value, selected, rtol=0.0, atol=1.0e-12)
+        for selected in selected_values
+    )
+
+
+def discover_runs(
+    input_root: str,
+    run_full_suite: bool,
+    run_msd: bool,
+    run_stress_modulus: bool,
+    selected_weakening_exponents: List[float] | None,
+) -> List[Tuple[str, str]]:
     excluded_dirs = {"TEST", "TEST_CPU_REACTIVELJ", "archived"}
     runs = []
     skipped_short = 0
+    skipped_corrupt = 0
+    skipped_weakening_exponent = 0
     for root, dirs, files in os.walk(input_root, topdown=True):
         # Keep test trajectories out of production analysis sweeps.
         dirs[:] = [d for d in dirs if d not in excluded_dirs]
         if "trajectory.gsd" in files:
             gsd_path = os.path.join(root, "trajectory.gsd")
             metadata_path = os.path.join(root, "metadata.json")
+            metadata: Dict = {}
             required_frames = None
             if os.path.exists(metadata_path):
                 with open(metadata_path, "r", encoding="utf-8") as handle:
@@ -161,8 +255,41 @@ def discover_runs(input_root: str) -> List[Tuple[str, str]]:
                 required_frames = int(
                     np.floor(MAX_ANALYSIS_LAG_TIME / sample_dt + 1.0e-12)
                 ) + 1
-            with gsd.hoomd.open(gsd_path, "r") as traj:
-                n_frames = len(traj)
+            weakening_exponent = infer_weakening_exponent(root, metadata)
+            if not value_matches_selection(
+                weakening_exponent,
+                selected_weakening_exponents,
+            ):
+                skipped_weakening_exponent += 1
+                continue
+
+            n_frames = gsd_frame_count_or_none(gsd_path, input_root)
+            if n_frames is None:
+                skipped_corrupt += 1
+                continue
+
+            validation_paths = []
+            if run_full_suite or run_msd:
+                msd_path = os.path.join(
+                    root,
+                    str(metadata.get("msd_trajectory_file", "msd_trajectory.gsd")),
+                )
+                if os.path.exists(msd_path):
+                    validation_paths.append(msd_path)
+            if run_full_suite or run_stress_modulus:
+                virial_path = os.path.join(root, "virial_tensor_log.gsd")
+                if os.path.exists(virial_path):
+                    validation_paths.append(virial_path)
+
+            has_corrupt_required_input = False
+            for validation_path in validation_paths:
+                if gsd_frame_count_or_none(validation_path, input_root) is None:
+                    skipped_corrupt += 1
+                    has_corrupt_required_input = True
+                    break
+            if has_corrupt_required_input:
+                continue
+
             if required_frames is not None and n_frames < required_frames:
                 skipped_short += 1
                 rel_path = os.path.relpath(gsd_path, input_root)
@@ -176,6 +303,14 @@ def discover_runs(input_root: str) -> List[Tuple[str, str]]:
         log(
             f"Skipped {skipped_short} trajectories shorter than the "
             f"{MAX_ANALYSIS_LAG_TAU_R0:g} tau_R^0 lag requirement"
+        )
+    if skipped_corrupt > 0:
+        log(f"Skipped {skipped_corrupt} runs with corrupt GSD input files")
+    if skipped_weakening_exponent > 0:
+        selected = ", ".join(f"{value:g}" for value in selected_weakening_exponents or [])
+        log(
+            f"Skipped {skipped_weakening_exponent} runs outside selected "
+            f"weakening exponent(s): {selected}"
         )
     return runs
 
@@ -209,6 +344,47 @@ def scalar_as_array(value: float) -> np.ndarray:
     if not np.isfinite(value):
         return np.array([], dtype=np.float64)
     return np.asarray([float(value)], dtype=np.float64)
+
+
+def resolved_bond_tau_data(
+    epsilon_values: List[float],
+    tau_s_data: List[np.ndarray],
+) -> Tuple[List[float], List[np.ndarray]]:
+    resolved_eps: List[float] = []
+    resolved_tau_s: List[np.ndarray] = []
+    for epsilon, values in zip(epsilon_values, tau_s_data):
+        epsilon_float = float(epsilon)
+        arr = np.asarray(values, dtype=np.float64)
+        arr = arr[np.isfinite(arr) & (arr > 0.0)]
+        if epsilon_float >= MIN_RESOLVED_BOND_TAU_EPSILON and arr.size:
+            resolved_eps.append(epsilon_float)
+            resolved_tau_s.append(arr)
+    return resolved_eps, resolved_tau_s
+
+
+def exchange_rate_points_from_summary_rows(
+    summary_rows: List[Dict[str, float]],
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    epsilons: List[float] = []
+    turnover_assoc: List[float] = []
+    turnover_dissoc: List[float] = []
+    for row in summary_rows:
+        epsilon = float(row["epsilon"])
+        assoc = float(row["rate_assoc_mean"]) * EXCHANGE_RATE_DUMP_INTERVAL_TAU_LJ
+        dissoc = float(row["rate_dissoc_mean"]) * EXCHANGE_RATE_DUMP_INTERVAL_TAU_LJ
+        if np.isfinite(epsilon) and np.isfinite(assoc) and np.isfinite(dissoc):
+            epsilons.append(epsilon)
+            turnover_assoc.append(assoc)
+            turnover_dissoc.append(dissoc)
+
+    if not epsilons:
+        raise ValueError("No finite exchange-rate rows found in summary data")
+
+    order = np.argsort(np.asarray(epsilons, dtype=np.float64))
+    epsilon_arr = np.asarray(epsilons, dtype=np.float64)[order]
+    assoc_arr = np.asarray(turnover_assoc, dtype=np.float64)[order]
+    dissoc_arr = np.asarray(turnover_dissoc, dtype=np.float64)[order]
+    return epsilon_arr, assoc_arr, dissoc_arr
 
 
 def finite_column_stderr(values: np.ndarray) -> np.ndarray:
@@ -368,20 +544,13 @@ def compute_stress_autocovariance_multitau(
     if tensor_arr.ndim != 2 or tensor_arr.shape[0] <= 1 or tensor_arr.shape[1] < 6:
         return None, None, None
 
-    xx = tensor_arr[:, 0]
     xy = tensor_arr[:, 1]
     xz = tensor_arr[:, 2]
-    yy = tensor_arr[:, 3]
     yz = tensor_arr[:, 4]
-    zz = tensor_arr[:, 5]
 
-    # Rotationally averaged deviatoric-stress autocovariance following
-    # ref. 57 eq. 33: 1/5 over the three shear components plus 1/30 over
-    # the three normal-stress differences.
-    weighted_series = (
-        (1.0 / 5.0, (xy, xz, yz)),
-        (1.0 / 30.0, (xx - yy, xx - zz, yy - zz)),
-    )
+    # Match the Liu/O'Connor Green-Kubo estimator: average only shear
+    # components with alpha != beta (xy, xz, yz).
+    weighted_series = ((1.0 / 3.0, (xy, xz, yz)),)
 
     g_lags = None
     g_cov = None
@@ -1402,22 +1571,31 @@ def analyze_replicate_job(
     run_gelation_epsilon: bool,
     rep_label: str,
     rel_path: str,
-) -> Tuple[float, Dict]:
+) -> Tuple[float, Dict | None]:
     log(f"{rep_label}: start ({rel_path})")
-    result = analyze_replicate(
-        gsd_path,
-        metadata,
-        analysis_stride,
-        msd_max_lag_frames,
-        stress_max_runtime_fraction,
-        run_full_suite=run_full_suite,
-        run_msd=run_msd,
-        run_stress_modulus=run_stress_modulus,
-        run_bond_statistics=run_bond_statistics,
-        run_cluster_distribution=run_cluster_distribution,
-        run_gelation_epsilon=run_gelation_epsilon,
-        progress_label=rep_label,
-    )
+    try:
+        result = analyze_replicate(
+            gsd_path,
+            metadata,
+            analysis_stride,
+            msd_max_lag_frames,
+            stress_max_runtime_fraction,
+            run_full_suite=run_full_suite,
+            run_msd=run_msd,
+            run_stress_modulus=run_stress_modulus,
+            run_bond_statistics=run_bond_statistics,
+            run_cluster_distribution=run_cluster_distribution,
+            run_gelation_epsilon=run_gelation_epsilon,
+            progress_label=rep_label,
+        )
+    except RuntimeError as exc:
+        if is_corrupt_gsd_error(exc):
+            log(
+                f"{rep_label}: skipping corrupt GSD input while analyzing "
+                f"{rel_path}: {exc}"
+            )
+            return epsilon, None
+        raise
     log(f"{rep_label}: done")
     return epsilon, result
 
@@ -1817,12 +1995,14 @@ def compute_shared_time_lag_xlim(
     g_time_by_eps: Dict[float, np.ndarray],
     g_mean_by_eps: Dict[float, np.ndarray],
     tau_r0: float,
+    plot_x_min_time: float | None = None,
+    plot_x_max_tau_r0: float = MAX_ANALYSIS_LAG_TAU_R0,
 ) -> Tuple[float, float] | None:
     if not np.isfinite(tau_r0) or tau_r0 <= 0.0:
         tau_r0 = FALLBACK_TAU_R0
 
-    positive_xmins: List[float] = []
-    positive_xmaxs: List[float] = []
+    stress_xmins: List[float] = []
+    fallback_xmins: List[float] = []
 
     for eps, msd_time in msd_time_by_eps.items():
         msd_mean = msd_mean_by_eps.get(eps)
@@ -1837,8 +2017,7 @@ def compute_shared_time_lag_xlim(
         y = mean_arr[:n]
         mask = np.isfinite(x) & np.isfinite(y) & (x > 0.0) & (y > 0.0)
         if np.any(mask):
-            positive_xmins.append(float(np.min(x[mask])))
-            positive_xmaxs.append(float(np.max(x[mask])))
+            fallback_xmins.append(float(np.min(x[mask])))
 
     for eps, lag_time in g_time_by_eps.items():
         g_mean = g_mean_by_eps.get(eps)
@@ -1850,15 +2029,25 @@ def compute_shared_time_lag_xlim(
         if n == 0:
             continue
         x = time_arr[:n] / tau_r0
-        y = mean_arr[:n]
         finite_lag = np.isfinite(x) & (x > 0.0)
         if np.any(finite_lag):
-            positive_xmins.append(float(np.min(x[finite_lag])))
-            positive_xmaxs.append(float(np.max(x[finite_lag])))
+            stress_xmins.append(float(np.min(x[finite_lag])))
 
-    if not positive_xmins or not positive_xmaxs:
+    if plot_x_min_time is not None:
+        x_min = float(plot_x_min_time) / tau_r0
+        if not np.isfinite(x_min) or x_min <= 0.0:
+            return None
+    elif stress_xmins:
+        x_min = min(stress_xmins)
+    elif fallback_xmins:
+        x_min = min(fallback_xmins)
+    else:
         return None
-    return min(positive_xmins), max(positive_xmaxs)
+
+    x_max = float(plot_x_max_tau_r0)
+    if not np.isfinite(x_max) or x_max <= x_min:
+        x_max = MAX_ANALYSIS_LAG_TAU_R0
+    return x_min, x_max
 
 
 def write_msd_vs_epsilon_plot(
@@ -1893,7 +2082,7 @@ def write_msd_vs_epsilon_plot(
         return
 
     cmap = plt.get_cmap("plasma", len(series))
-    fig, ax = plt.subplots(figsize=(3.3, 2.0))
+    fig, ax = plt.subplots(figsize=(3.3, 1.5))
     for idx, (eps, x, y) in enumerate(series):
         ax.plot(x, y, color=cmap(idx), lw=2.0, label=f"eps={eps:g}")
 
@@ -1936,7 +2125,7 @@ def write_stress_modulus_by_epsilon_plot(
         return
 
     cmap = plt.get_cmap("plasma", len(series))
-    fig, ax = plt.subplots(figsize=(3.3, 2.0))
+    fig, ax = plt.subplots(figsize=(3.3, 1.5))
     for idx, (eps, lag_time, mean) in enumerate(series):
         color = cmap(idx)
         stop_mask = (~np.isfinite(mean)) | (mean < 1.0e-3)
@@ -1977,6 +2166,16 @@ def main() -> None:
             "--stress-max-runtime-fraction must be > 0, "
             f"got {args.stress_max_runtime_fraction}."
         )
+    if args.plot_x_min_time is not None and args.plot_x_min_time <= 0.0:
+        raise RuntimeError("--plot-x-min-time must be > 0 when provided.")
+    if args.plot_x_max_tau_r0 <= 0.0:
+        raise RuntimeError("--plot-x-max-tau-r0 must be > 0.")
+    if args.weakening_exponents is not None:
+        for value in args.weakening_exponents:
+            if not np.isfinite(value):
+                raise RuntimeError(
+                    f"--weakening-exponents values must be finite, got {value}."
+                )
     (
         run_full_suite,
         run_msd,
@@ -2009,8 +2208,17 @@ def main() -> None:
         if run_gelation_epsilon:
             selected.append("gelation_epsilon")
         log(f"Requested analyses: {', '.join(selected)}")
+    if args.weakening_exponents is not None:
+        selected_p = ", ".join(f"{value:g}" for value in args.weakening_exponents)
+        log(f"Selected weakening exponent(s): {selected_p}")
     log(f"Scanning trajectories under {args.input_root}")
-    runs = discover_runs(args.input_root)
+    runs = discover_runs(
+        args.input_root,
+        run_full_suite,
+        run_msd,
+        run_stress_modulus,
+        args.weakening_exponents,
+    )
     if not runs:
         raise RuntimeError(f"No trajectories found under {args.input_root}")
     log(f"Discovered {len(runs)} trajectory/metadata pairs")
@@ -2107,8 +2315,19 @@ def main() -> None:
     log(f"Completed parallel analysis for {len(results)} runs")
 
     grouped_results: Dict[float, List[Dict]] = defaultdict(list)
+    skipped_corrupt_runtime = 0
     for epsilon, result in results:
+        if result is None:
+            skipped_corrupt_runtime += 1
+            continue
         grouped_results[epsilon].append(result)
+    if skipped_corrupt_runtime > 0:
+        log(
+            f"Skipped {skipped_corrupt_runtime} runs that encountered corrupt "
+            "GSD input during analysis"
+        )
+    if not grouped_results:
+        raise RuntimeError("No valid trajectory analysis results remain after skips.")
 
     sorted_results = sorted(grouped_results.items())
     if not run_full_suite:
@@ -2132,6 +2351,8 @@ def main() -> None:
         }
         bond_tau_plot_kwargs = dict(compact_eps_plot_kwargs)
         bond_tau_plot_kwargs["x_label"] = r"$\varepsilon_\mathrm{reactiveLJ}$"
+        intra_inter_ratio_plot_kwargs = dict(compact_eps_plot_kwargs)
+        intra_inter_ratio_plot_kwargs["figsize"] = INTRA_INTER_RATIO_FIGSIZE
         for eps_idx, (epsilon, replicate_results) in enumerate(sorted_results, start=1):
             eps_dir = os.path.join(args.output_dir, f"eps_{epsilon:g}")
             os.makedirs(eps_dir, exist_ok=True)
@@ -2283,6 +2504,8 @@ def main() -> None:
                 g_time_by_eps,
                 g_mean_by_eps,
                 tau_r0_reference,
+                plot_x_min_time=args.plot_x_min_time,
+                plot_x_max_tau_r0=args.plot_x_max_tau_r0,
             )
             write_stress_modulus_by_epsilon_plot(
                 os.path.join(args.output_dir, "stress_modulus_vs_time_lag_by_epsilon.svg"),
@@ -2299,6 +2522,8 @@ def main() -> None:
                 g_time_by_eps,
                 g_mean_by_eps,
                 tau_r0_reference,
+                plot_x_min_time=args.plot_x_min_time,
+                plot_x_max_tau_r0=args.plot_x_max_tau_r0,
             )
             write_msd_vs_epsilon_plot(
                 os.path.join(args.output_dir, "monomer_msd_vs_time_lag_by_epsilon.svg"),
@@ -2315,24 +2540,28 @@ def main() -> None:
                 cluster_distribution_by_eps,
             )
         if run_gelation_epsilon and gelation_epsilon_eps:
-            write_scalar_violin_vs_epsilon_plot(
-                os.path.join(args.output_dir, "gelation_epsilon_vs_epsilon.svg"),
-                gelation_epsilon_eps,
-                gelation_epsilon_data,
-                title=None,
-                y_label="gelation epsilon",
-                figsize=(3.3, 2.0),
-                dpi=1000,
-                x_label=r"$\varepsilon_\mathrm{reactiveLJ}$",
-                tick_label_size=8,
-                axis_label_size=10,
+            gelation_epsilon, gelation_mean, gelation_stderr = (
+                summarize_gelation_epsilon_points(
+                    gelation_epsilon_eps,
+                    gelation_epsilon_data,
+                )
+            )
+            write_gelation_epsilon_plot(
+                os.path.join(args.output_dir, GELATION_EPSILON_PLOT),
+                gelation_epsilon,
+                gelation_mean,
+                gelation_stderr,
             )
         if run_bond_statistics and bond_statistics_eps:
             remove_legacy_bond_tau_plots(args.output_dir)
-            write_log_tau_vs_epsilon_plot(
-                os.path.join(args.output_dir, BOND_TAU_EPSILON_PLOT),
+            resolved_eps, resolved_tau_s = resolved_bond_tau_data(
                 bond_statistics_eps,
                 tau_s_data,
+            )
+            write_log_tau_vs_epsilon_plot(
+                os.path.join(args.output_dir, BOND_TAU_EPSILON_PLOT),
+                resolved_eps,
+                resolved_tau_s,
                 title=None,
                 **bond_tau_plot_kwargs,
             )
@@ -2362,12 +2591,12 @@ def main() -> None:
                     **compact_eps_plot_kwargs,
                 )
                 write_scalar_violin_vs_epsilon_plot(
-                    os.path.join(args.output_dir, "intra_to_inter_bond_ratio_vs_epsilon.png"),
+                    os.path.join(args.output_dir, INTRA_INTER_RATIO_EPSILON_PLOT),
                     bond_statistics_eps,
                     intra_inter_ratio_data,
                     title=None,
-                    y_label="intra/inter bond ratio",
-                    **compact_eps_plot_kwargs,
+                    y_label=INTRA_INTER_RATIO_LABEL,
+                    **intra_inter_ratio_plot_kwargs,
                 )
         log("Selected-analysis rerun complete")
         return
@@ -2611,6 +2840,8 @@ def main() -> None:
         }
         bond_tau_plot_kwargs = dict(compact_eps_plot_kwargs)
         bond_tau_plot_kwargs["x_label"] = r"$\varepsilon_\mathrm{reactiveLJ}$"
+        intra_inter_ratio_plot_kwargs = dict(compact_eps_plot_kwargs)
+        intra_inter_ratio_plot_kwargs["figsize"] = INTRA_INTER_RATIO_FIGSIZE
         write_fraction_violin_plot(
             os.path.join(args.output_dir, "sticker_fraction_bond0_violin.png"),
             epsilon_values,
@@ -2651,6 +2882,8 @@ def main() -> None:
             g_time_by_eps,
             g_mean_by_eps,
             tau_r0_reference,
+            plot_x_min_time=args.plot_x_min_time,
+            plot_x_max_tau_r0=args.plot_x_max_tau_r0,
         )
         write_msd_vs_epsilon_plot(
             os.path.join(args.output_dir, "monomer_msd_vs_time_lag_by_epsilon.svg"),
@@ -2661,10 +2894,14 @@ def main() -> None:
             x_limits=shared_time_lag_xlim,
         )
         remove_legacy_bond_tau_plots(args.output_dir)
-        write_log_tau_vs_epsilon_plot(
-            os.path.join(args.output_dir, BOND_TAU_EPSILON_PLOT),
+        resolved_eps, resolved_tau_s = resolved_bond_tau_data(
             epsilon_values,
             tau_s_data,
+        )
+        write_log_tau_vs_epsilon_plot(
+            os.path.join(args.output_dir, BOND_TAU_EPSILON_PLOT),
+            resolved_eps,
+            resolved_tau_s,
             title=None,
             **bond_tau_plot_kwargs,
         )
@@ -2689,16 +2926,10 @@ def main() -> None:
                 "p",
             ),
             (
-                "epsilon_mean",
-                "gelation_epsilon_vs_epsilon.svg",
-                "Degree of Gelation vs epsilon",
-                "gelation epsilon",
-            ),
-            (
                 "intra_inter_ratio",
-                "intra_to_inter_bond_ratio_vs_epsilon.png",
+                INTRA_INTER_RATIO_EPSILON_PLOT,
                 "Intra/Inter Bond Ratio vs epsilon",
-                "intra/inter bond ratio",
+                INTRA_INTER_RATIO_LABEL,
             ),
             (
                 "tau_c",
@@ -2716,18 +2947,9 @@ def main() -> None:
         for key, filename, title, y_label in scalar_violin_specs:
             plot_kwargs = {}
             plot_title = title
-            if key == "epsilon_mean":
+            if key == "intra_inter_ratio":
                 plot_title = None
-                plot_kwargs = {
-                    "figsize": (3.3, 2.0),
-                    "dpi": 1000,
-                    "x_label": r"$\varepsilon_\mathrm{reactiveLJ}$",
-                    "tick_label_size": 8,
-                    "axis_label_size": 10,
-                }
-            elif key == "intra_inter_ratio":
-                plot_title = None
-                plot_kwargs = compact_eps_plot_kwargs
+                plot_kwargs = intra_inter_ratio_plot_kwargs
             write_scalar_violin_vs_epsilon_plot(
                 os.path.join(args.output_dir, filename),
                 epsilon_values,
@@ -2736,17 +2958,26 @@ def main() -> None:
                 y_label=y_label,
                 **plot_kwargs,
             )
-        write_dual_scalar_violin_vs_epsilon_plot(
-            os.path.join(args.output_dir, "exchange_rate_comparison_vs_epsilon.png"),
-            epsilon_values,
-            scalar_violin_data["rate_assoc"],
-            scalar_violin_data["rate_dissoc"],
-            title="Associative Exchange vs Passive Dimerization Rates",
-            y_label="rate (1/time)",
-            left_label="Associative exchange rate (R_a)",
-            right_label="Passive dimerization rate (R_d)",
-            left_color="#e77500",
-            right_color="#121212",
+        gelation_epsilon, gelation_mean, gelation_stderr = (
+            summarize_gelation_epsilon_points(
+                epsilon_values,
+                scalar_violin_data["epsilon_mean"],
+            )
+        )
+        write_gelation_epsilon_plot(
+            os.path.join(args.output_dir, GELATION_EPSILON_PLOT),
+            gelation_epsilon,
+            gelation_mean,
+            gelation_stderr,
+        )
+        exchange_epsilon, exchange_assoc, exchange_dissoc = (
+            exchange_rate_points_from_summary_rows(summary_rows)
+        )
+        write_exchange_rate_plot(
+            os.path.join(args.output_dir, EXCHANGE_RATE_EPSILON_PLOT),
+            exchange_epsilon,
+            exchange_assoc,
+            exchange_dissoc,
         )
         write_stress_modulus_by_epsilon_plot(
             os.path.join(args.output_dir, "stress_modulus_vs_time_lag_by_epsilon.svg"),

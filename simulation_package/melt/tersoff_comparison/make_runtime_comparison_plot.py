@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build runtime comparison violin plots for ReactiveLJ vs Tersoff runs."""
+"""Build runtime comparison bar plots for ReactiveLJ vs Tersoff runs."""
 
 from __future__ import annotations
 
@@ -9,27 +9,30 @@ import glob
 import os
 import re
 from collections import defaultdict
+from typing import Any
 
 import matplotlib
 import numpy as np
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 
 
-EPSILONS_DEFAULT = (3.0, 6.0, 9.0, 12.0, 15.0, 18.0)
+EPSILONS_DEFAULT = (6.0, 12.0, 15.0, 18.0)
+SECONDS_PER_DAY = 86400.0
+TIME_STEP_DEFAULT = 0.005
 PRODUCTION_RUNTIME_RE = re.compile(
     r"Production_runtime_seconds=([0-9]+(?:\.[0-9]+)?)"
 )
+PRODUCTION_STEPS_RE = re.compile(r"Stage=production start steps=([0-9]+)")
 REQUESTED_EPSILON_RE = re.compile(r"Requested_epsilon=([0-9]+(?:\.[0-9]+)?)")
 EPSILON_LINE_RE = re.compile(r"epsilon=([0-9]+(?:\.[0-9]+)?)")
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Create a combined runtime violin plot for ReactiveLJ and Tersoff runs."
+        description="Create a grouped runtime bar plot for ReactiveLJ and Tersoff runs."
     )
     parser.add_argument(
         "--epsilons",
@@ -40,39 +43,65 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--reactive-log-glob",
-        default="../logs/generate_data_*.out",
-        help="Glob for ReactiveLJ log files.",
+        default="logs/generate_reactive_lj_data_*.out",
+        help="Glob for ReactiveLJ comparison log files.",
     )
     parser.add_argument(
         "--tersoff-log-glob",
         default="logs/generate_tersoff_data_*.out",
-        help="Glob for Tersoff log files.",
+        help="Glob for Liu/O'Connor Tersoff comparison log files.",
     )
     parser.add_argument(
         "--output-path",
-        default="plots/runtime_violin_comparison.png",
-        help="Output PNG path.",
+        default="plots/runtime_bar_comparison.svg",
+        help="Output plot path.",
     )
     parser.add_argument(
         "--samples-csv",
         default="outputs/runtime_samples.csv",
         help="Optional CSV dump of parsed runtime samples.",
     )
+    parser.add_argument(
+        "--time-step",
+        type=float,
+        default=TIME_STEP_DEFAULT,
+        help="Production timestep used to convert timesteps/day to reduced time units/day.",
+    )
+    parser.add_argument(
+        "--metric",
+        choices=["tau_per_day", "timesteps_per_day"],
+        default="tau_per_day",
+        help="Throughput metric to plot on the y axis.",
+    )
     return parser.parse_args()
 
 
-def _extract_production_runtime_seconds(path: str) -> float | None:
+def _read_log_text(path: str) -> str:
     with open(path, "r", encoding="utf-8", errors="replace") as handle:
-        text = handle.read()
+        return handle.read()
+
+
+def _extract_production_runtime_seconds(text: str) -> float | None:
     match = PRODUCTION_RUNTIME_RE.search(text)
     if match is None:
         return None
     return float(match.group(1))
 
 
-def _epsilon_from_log_text(path: str, epsilons: list[float]) -> float | None:
-    with open(path, "r", encoding="utf-8", errors="replace") as handle:
-        text = handle.read()
+def _extract_production_steps(text: str) -> int | None:
+    matches = PRODUCTION_STEPS_RE.findall(text)
+    if not matches:
+        return None
+    return int(matches[-1])
+
+
+def _epsilon_from_log_text(text: str, epsilons: list[float]) -> float | None:
+    requested_matches = REQUESTED_EPSILON_RE.findall(text)
+    if requested_matches:
+        value = float(requested_matches[-1])
+        for eps in epsilons:
+            if abs(value - eps) < 1e-8:
+                return float(eps)
 
     lines = text.splitlines()
     for idx, line in enumerate(lines):
@@ -89,88 +118,109 @@ def _epsilon_from_log_text(path: str, epsilons: list[float]) -> float | None:
             if abs(value - eps) < 1e-8:
                 return float(eps)
         return None
-
-    # Tersoff logs do not have the ReactiveLJ epsilon ramp; use explicit value.
-    requested_matches = REQUESTED_EPSILON_RE.findall(text)
-    if requested_matches:
-        value = float(requested_matches[-1])
-        for eps in epsilons:
-            if abs(value - eps) < 1e-8:
-                return float(eps)
     return None
 
 
 def collect_samples(
     log_glob: str,
     epsilons: list[float],
-) -> dict[float, list[float]]:
-    samples: dict[float, list[float]] = defaultdict(list)
+    time_step: float,
+) -> dict[float, list[dict[str, Any]]]:
+    samples: dict[float, list[dict[str, Any]]] = defaultdict(list)
 
     for path in sorted(glob.glob(log_glob)):
-        runtime = _extract_production_runtime_seconds(path)
+        text = _read_log_text(path)
+        runtime = _extract_production_runtime_seconds(text)
         if runtime is None:
             continue
 
-        epsilon = _epsilon_from_log_text(path, epsilons)
+        production_steps = _extract_production_steps(text)
+        if production_steps is None:
+            continue
+
+        epsilon = _epsilon_from_log_text(text, epsilons)
         if epsilon is None:
             continue
 
-        samples[float(epsilon)].append(runtime)
+        timesteps_per_day = production_steps * SECONDS_PER_DAY / runtime
+        tau_per_day = timesteps_per_day * time_step
+
+        samples[float(epsilon)].append(
+            {
+                "log_path": path,
+                "production_runtime_seconds": runtime,
+                "production_steps": production_steps,
+                "timesteps_per_day": timesteps_per_day,
+                "tau_per_day": tau_per_day,
+            }
+        )
 
     return samples
 
 
 def dump_samples_csv(
     path: str,
-    reactive_samples: dict[float, list[float]],
-    tersoff_samples: dict[float, list[float]],
+    reactive_samples: dict[float, list[dict[str, Any]]],
+    tersoff_samples: dict[float, list[dict[str, Any]]],
 ) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle)
-        writer.writerow(["model", "epsilon", "production_runtime_seconds"])
+        writer.writerow(
+            [
+                "model",
+                "epsilon",
+                "production_steps",
+                "production_runtime_seconds",
+                "timesteps_per_day",
+                "tau_per_day",
+                "log_path",
+            ]
+        )
         for epsilon, values in sorted(reactive_samples.items()):
-            for runtime in values:
-                writer.writerow(["ReactiveLJ", epsilon, runtime])
+            for sample in values:
+                writer.writerow(
+                    [
+                        "ReactiveLJ",
+                        epsilon,
+                        sample["production_steps"],
+                        sample["production_runtime_seconds"],
+                        sample["timesteps_per_day"],
+                        sample["tau_per_day"],
+                        sample["log_path"],
+                    ]
+                )
         for epsilon, values in sorted(tersoff_samples.items()):
-            for runtime in values:
-                writer.writerow(["Tersoff", epsilon, runtime])
+            for sample in values:
+                writer.writerow(
+                    [
+                        "Tersoff",
+                        epsilon,
+                        sample["production_steps"],
+                        sample["production_runtime_seconds"],
+                        sample["timesteps_per_day"],
+                        sample["tau_per_day"],
+                        sample["log_path"],
+                    ]
+                )
 
 
-def _draw_violin(ax, data: list[list[float]], positions: np.ndarray, color: str) -> None:
-    valid_data = []
-    valid_positions = []
-    for vals, pos in zip(data, positions):
-        if len(vals) == 0:
-            continue
-        valid_data.append(vals)
-        valid_positions.append(pos)
-
-    if not valid_data:
-        return
-
-    violin = ax.violinplot(
-        valid_data,
-        positions=np.array(valid_positions),
-        widths=0.30,
-        showmeans=False,
-        showmedians=False,
-        showextrema=False,
-    )
-    for body in violin["bodies"]:
-        body.set_facecolor(color)
-        body.set_edgecolor(color)
-        body.set_alpha(0.75)
-
-
-def _median_series(data: list[list[float]]) -> np.ndarray:
-    medians = []
+def _summary_series(data: list[list[float]]) -> tuple[np.ndarray, np.ndarray]:
+    centers = []
+    errors = []
     for values in data:
         if len(values) == 0:
-            medians.append(np.nan)
+            centers.append(np.nan)
+            errors.append(np.nan)
         else:
-            medians.append(float(np.median(values)))
-    return np.asarray(medians, dtype=np.float64)
+            arr = np.asarray(values, dtype=np.float64)
+            centers.append(float(np.median(arr)))
+            if arr.size == 1:
+                errors.append(0.0)
+            else:
+                q25, q75 = np.percentile(arr, [25, 75])
+                errors.append(float((q75 - q25) / 2.0))
+    return np.asarray(centers, dtype=np.float64), np.asarray(errors, dtype=np.float64)
 
 
 def main() -> None:
@@ -187,45 +237,56 @@ def main() -> None:
     reactive_samples = collect_samples(
         log_glob=reactive_glob,
         epsilons=epsilons,
+        time_step=args.time_step,
     )
     tersoff_samples = collect_samples(
         log_glob=tersoff_glob,
         epsilons=epsilons,
+        time_step=args.time_step,
     )
 
     dump_samples_csv(samples_csv, reactive_samples=reactive_samples, tersoff_samples=tersoff_samples)
 
-    bases = np.arange(len(epsilons), dtype=float) + 1.0
-    reactive_positions = bases
-    tersoff_positions = bases
+    bases = np.arange(len(epsilons), dtype=float)
 
-    reactive_data = [reactive_samples.get(eps, []) for eps in epsilons]
-    tersoff_data = [tersoff_samples.get(eps, []) for eps in epsilons]
+    reactive_data = [
+        [sample[args.metric] for sample in reactive_samples.get(eps, [])]
+        for eps in epsilons
+    ]
+    tersoff_data = [
+        [sample[args.metric] for sample in tersoff_samples.get(eps, [])]
+        for eps in epsilons
+    ]
 
     fig, ax = plt.subplots(figsize=(3.3, 3.3), dpi=600)
 
-    _draw_violin(ax, reactive_data, reactive_positions, color="#e77500")
-    _draw_violin(ax, tersoff_data, tersoff_positions, color="#121212")
+    reactive_medians, reactive_errors = _summary_series(reactive_data)
+    tersoff_medians, tersoff_errors = _summary_series(tersoff_data)
 
-    reactive_medians = _median_series(reactive_data)
-    tersoff_medians = _median_series(tersoff_data)
-    ax.plot(
-        bases,
+    width = 0.36
+    ax.bar(
+        bases - width / 2,
         reactive_medians,
+        width=width,
+        yerr=reactive_errors,
         color="#e77500",
-        marker="o",
-        markersize=3.5,
-        linewidth=1.5,
-        zorder=4,
+        edgecolor="#8f4a00",
+        linewidth=0.5,
+        error_kw={"elinewidth": 0.7, "capthick": 0.7, "capsize": 2.0},
+        label="ReactiveLJ",
+        zorder=3,
     )
-    ax.plot(
-        bases,
+    ax.bar(
+        bases + width / 2,
         tersoff_medians,
+        width=width,
+        yerr=tersoff_errors,
         color="#121212",
-        marker="o",
-        markersize=3.5,
-        linewidth=1.5,
-        zorder=4,
+        edgecolor="#121212",
+        linewidth=0.5,
+        error_kw={"elinewidth": 0.7, "capthick": 0.7, "capsize": 2.0},
+        label="Tersoff analog",
+        zorder=3,
     )
 
     ax.set_xticks(bases)
@@ -233,13 +294,17 @@ def main() -> None:
     ax.tick_params(axis="y", labelsize=8)
 
     ax.set_xlabel(r"ReactiveLJ $\varepsilon$", fontsize=10)
-    ax.set_ylabel("Production Runtime (s)", fontsize=10)
-    ax.set_title("Production Runtime Comparison", fontsize=12)
+    ylabel = {
+        "tau_per_day": r"Simulation Throughput ($\tau$/day)",
+        "timesteps_per_day": "Simulation Throughput (timesteps/day)",
+    }[args.metric]
+    ax.set_ylabel(ylabel, fontsize=10)
+    ax.set_title("Production Throughput Comparison", fontsize=12)
     ax.grid(axis="y", alpha=0.25, linewidth=0.4)
 
     legend_handles = [
-        Patch(facecolor="#e77500", edgecolor="#e77500", alpha=0.75, label="ReactiveLJ"),
-        Patch(facecolor="#121212", edgecolor="#121212", alpha=0.75, label="Tersoff analog"),
+        Patch(facecolor="#e77500", edgecolor="#8f4a00", label="ReactiveLJ"),
+        Patch(facecolor="#121212", edgecolor="#121212", label="Tersoff analog"),
     ]
     ax.legend(handles=legend_handles, fontsize=8, frameon=True, loc="best")
 

@@ -38,7 +38,7 @@ log "Step 7/8: Generating bond autocorrelation lag plot"
 PLOT_START_TS=$(date +%s)
 python -u "${WORK_DIR}/analysis/make_bond_persistence_vs_time_lag.py" \
     --input-root "${WORK_DIR}/analysis/results" \
-    --output "${WORK_DIR}/analysis/bond_persistence_vs_time_lag.png"
+    --output "${WORK_DIR}/analysis/bond_persistence_vs_time_lag.svg"
 PLOT_END_TS=$(date +%s)
 log "Step 7/8 complete: Plot finished in $((PLOT_END_TS - PLOT_START_TS)) seconds"
 

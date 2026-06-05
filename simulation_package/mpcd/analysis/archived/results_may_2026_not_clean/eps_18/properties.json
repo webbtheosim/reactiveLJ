@@ -1,0 +1,122 @@
+{
+  "bonded_pair_count": {
+    "mean": 174.4865379856471,
+    "stderr": 0.05997323086574499,
+    "n_finite": 10
+  },
+  "p_open": {
+    "mean": 0.07188011709762172,
+    "stderr": 0.00031900654715821315,
+    "n_finite": 10
+  },
+  "bonding_probability_p": {
+    "mean": 0.9281198829023782,
+    "stderr": 0.0003190065471582197,
+    "n_finite": 10
+  },
+  "gelation_epsilon": {
+    "mean": 1.784359648707135,
+    "stderr": 0.0009570196414746321,
+    "n_finite": 10
+  },
+  "stickers_per_chain_f": {
+    "mean": 4.0,
+    "stderr": 0.0,
+    "n_finite": 10
+  },
+  "gel_point_p_c": {
+    "mean": 0.33333333333333337,
+    "stderr": 1.850371707708594e-17,
+    "n_finite": 10
+  },
+  "fraction_stickers_bond0": {
+    "mean": 0.07188011709762172,
+    "stderr": 0.00031900654715821315,
+    "n_finite": 10
+  },
+  "fraction_stickers_bond1": {
+    "mean": 0.9281198829023782,
+    "stderr": 0.0003190065471582069,
+    "n_finite": 10
+  },
+  "fraction_stickers_bond_gt1": {
+    "mean": 0.0,
+    "stderr": 0.0,
+    "n_finite": 10
+  },
+  "clump_fraction": {
+    "mean": 0.0,
+    "stderr": 0.0,
+    "n_finite": 10
+  },
+  "intra_bonds": {
+    "mean": 119.01804008908684,
+    "stderr": 0.7345727225472396,
+    "n_finite": 10
+  },
+  "inter_bonds": {
+    "mean": 55.46849789656026,
+    "stderr": 0.6837706600636949,
+    "n_finite": 10
+  },
+  "intra_to_inter_bond_ratio": {
+    "mean": 2.150152600443781,
+    "stderr": 0.04027868610563822,
+    "n_finite": 10
+  },
+  "number_average_cluster_size": {
+    "mean": 1.7774591288521466,
+    "stderr": 0.016183869592986476,
+    "n_finite": 10
+  },
+  "weight_average_cluster_size": {
+    "mean": 4.421500541436101,
+    "stderr": 0.0855194719047375,
+    "n_finite": 10
+  },
+  "largest_cluster_size": {
+    "mean": 12.789540542769942,
+    "stderr": 0.19863325827092115,
+    "n_finite": 10
+  },
+  "largest_cluster_fraction": {
+    "mean": 0.13605894194436335,
+    "stderr": 0.002113119768839166,
+    "n_finite": 10
+  },
+  "bond_persistence_time_tau_s": {
+    "mean": 176596.79644990005,
+    "stderr": 2033.4911450503894,
+    "n_finite": 10
+  },
+  "brachiation_time_tau_b": {
+    "mean": 5773.19508720026,
+    "stderr": 56.76240786378776,
+    "n_finite": 10
+  },
+  "associative_exchange_rate_R_a": {
+    "mean": 2.4946231634765417e-05,
+    "stderr": 1.6396562933123912e-07,
+    "n_finite": 10
+  },
+  "passive_dimerization_rate_R_d": {
+    "mean": 0.00016166680090312245,
+    "stderr": 7.910383272653219e-07,
+    "n_finite": 10
+  },
+  "associative_exchange_events_per_time": {
+    "mean": 0.0006742121762085464,
+    "stderr": 5.2040510860651695e-06,
+    "n_finite": 10
+  },
+  "passive_dimerization_events_per_time": {
+    "mean": 0.004368586041907275,
+    "stderr": 8.6235289153097e-06,
+    "n_finite": 10
+  },
+  "sampled_monomer_diffusion_coefficient": {
+    "mean": 87.35417862194961,
+    "stderr": 17.12644679078949,
+    "n_finite": 10
+  }
+}

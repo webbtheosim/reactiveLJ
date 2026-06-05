@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run one KG melt replicate using fitted Tersoff sticker interactions."""
+"""Run one KG melt replicate using fitted Liu/O'Connor Tersoff interactions."""
 
 from __future__ import annotations
 
@@ -22,7 +22,6 @@ from data_generation.run_reactive_lj import (
     build_integrator,
     build_snapshot,
     compute_box_length,
-    report_min_ss_distance,
     set_stickers,
     validate_stickers,
     write_metadata,
@@ -31,7 +30,10 @@ from data_generation.run_reactive_lj import (
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run one Tersoff replicate corresponding to a ReactiveLJ epsilon value."
+        description=(
+            "Run one Liu/O'Connor Tersoff replicate corresponding to a "
+            "ReactiveLJ epsilon value."
+        )
     )
     parser.add_argument(
         "--epsilon",
@@ -135,64 +137,47 @@ def _find_row_for_epsilon(params_csv: str, epsilon: float) -> dict[str, float]:
     return parsed
 
 
-def _as_tersoff_params(row: dict[str, float], magnitude_scale: float = 1.0) -> dict:
-    a1 = magnitude_scale * row["A1"]
-    a2 = magnitude_scale * row["A2"]
-    return {
-        "magnitudes": (a1, a2),
-        "exp_factors": (row["lambda1"], row["lambda2"]),
-        "lambda3": row["lambda3"],
-        "dimer_r": row["dimer_r"],
-        "cutoff_thickness": row["cutoff_thickness"],
-        "alpha": row["alpha"],
-        "n": row["n"],
-        "gamma": row["gamma"],
-        "c": row["c"],
-        "d": row["d"],
-        "m": row["m"],
-    }
+def _validate_liu_o_connor_subset(row: dict[str, float]) -> None:
+    if abs(row.get("lambda3", 0.0)) > 1.0e-12:
+        raise ValueError("optimized Liu/O'Connor Tersoff requires lambda3=0")
+    if abs(row.get("c", 0.0)) > 1.0e-12:
+        raise ValueError("optimized Liu/O'Connor Tersoff requires c=0 so g(theta)=1")
 
 
-def _add_tersoff(
+def _add_liu_o_connor_tersoff(
     integrator: hoomd.md.Integrator,
     nlist: hoomd.md.nlist.NeighborList,
     row: dict[str, float],
     initial_scale: float,
-) -> hoomd.md.many_body.Tersoff:
-    r_cut = float(row.get("r_cut", 1.5))
-    noninteractive_r_cut = 1.0e-6
-    tersoff = hoomd.md.many_body.Tersoff(nlist=nlist, default_r_cut=r_cut)
+) -> hoomd.md.many_body.LiuOConnorTersoff:
+    _validate_liu_o_connor_subset(row)
+    force = hoomd.md.many_body.LiuOConnorTersoff(
+        nlist=nlist,
+        sticky_type="sticky",
+        A1=initial_scale * row["A1"],
+        A2=initial_scale * row["A2"],
+        lambda1=row["lambda1"],
+        lambda2=row["lambda2"],
+        dimer_r=row["dimer_r"],
+        cutoff_thickness=row["cutoff_thickness"],
+        r_cut=float(row.get("r_cut", 1.5)),
+        alpha=row["alpha"],
+        n=row["n"],
+        gamma=row["gamma"],
+    )
+    integrator.forces.append(force)
+    return force
 
-    sticky_params = _as_tersoff_params(row=row, magnitude_scale=initial_scale)
-    noninteractive_params = dict(sticky_params)
-    noninteractive_params["magnitudes"] = (0.0, 0.0)
 
-    for pair in (("backbone", "backbone"), ("backbone", "sticky")):
-        tersoff.params[pair] = noninteractive_params
-        tersoff.r_cut[pair] = noninteractive_r_cut
-
-    tersoff.params[("sticky", "sticky")] = sticky_params
-    tersoff.r_cut[("sticky", "sticky")] = r_cut
-
-    integrator.forces.append(tersoff)
-    return tersoff
-
-
-def _set_tersoff_scale(
-    tersoff: hoomd.md.many_body.Tersoff,
-    row: dict[str, float],
-    scale: float,
+def _augment_metadata(
+    path: str,
+    params_row: dict[str, float],
+    params_csv: str,
 ) -> None:
-    r_cut = float(row.get("r_cut", 1.5))
-    tersoff.params[("sticky", "sticky")] = _as_tersoff_params(row=row, magnitude_scale=scale)
-    tersoff.r_cut[("sticky", "sticky")] = r_cut
-
-
-def _augment_metadata(path: str, params_row: dict[str, float], params_csv: str) -> None:
     with open(path, "r", encoding="utf-8") as handle:
         metadata = json.load(handle)
 
-    metadata["interaction_model"] = "tersoff"
+    metadata["interaction_model"] = "liu_o_connor_tersoff"
     metadata["tersoff_params_csv"] = os.path.abspath(params_csv)
     metadata["tersoff_params"] = {
         "magnitudes": [params_row["A1"], params_row["A2"]],
@@ -251,10 +236,15 @@ def main() -> None:
         args.epsilon,
         args.replicate,
         seed,
+        reactive_lj_enabled=False,
         target_box_length=target_box_length,
         initial_box_length=initial_box_length,
     )
-    _augment_metadata(metadata_path, params_row, args.tersoff_params_csv)
+    _augment_metadata(
+        metadata_path,
+        params_row,
+        args.tersoff_params_csv,
+    )
 
     device = hoomd.device.GPU() if args.device == "gpu" else hoomd.device.CPU()
     sim = hoomd.Simulation(device=device, seed=seed)
@@ -270,10 +260,11 @@ def main() -> None:
     )
     print(f"many_body_py={hoomd.md.many_body.__file__}", flush=True)
     print(
-        "TersoffForceComputeGPU_present="
-        f"{hasattr(hoomd.md._md, 'PotentialTersoffGPU')}",
+        "LiuOConnorTersoffForceComputeGPU_present="
+        f"{hasattr(hoomd.md._md, 'LiuOConnorTersoffForceComputeGPU')}",
         flush=True,
     )
+    print("Interaction_model=liu_o_connor_tersoff", flush=True)
     print(f"Device={sim.device}", flush=True)
     print(
         f"Requested_epsilon={args.epsilon:g} Replicate={args.replicate}",
@@ -285,7 +276,7 @@ def main() -> None:
 
     pair_nlist = hoomd.md.nlist.Cell(buffer=cfg.nlist_buffer)
     tersoff_nlist = hoomd.md.nlist.Cell(buffer=cfg.nlist_buffer)
-    integrator = build_integrator(cfg, pair_nlist)
+    integrator = build_integrator(cfg, pair_nlist, reactive_lj_enabled=True)
     sim.operations.integrator = integrator
 
     zero_momentum = hoomd.md.update.ZeroMomentum(
@@ -306,15 +297,9 @@ def main() -> None:
     print("Stage=enable_tersoff start", flush=True)
     set_stickers(sim, cfg)
     validate_stickers(sim, cfg)
-    report_min_ss_distance(sim)
     print("Stage=enable_tersoff done", flush=True)
 
-    tersoff = _add_tersoff(
-        integrator=integrator,
-        nlist=tersoff_nlist,
-        row=params_row,
-        initial_scale=1.0e-4,
-    )
+    tersoff = None
 
     if cfg.reactive_equil_steps > 0:
         print(
@@ -333,11 +318,19 @@ def main() -> None:
         for segment in range(n_segments):
             frac = 1.0 if n_segments == 1 else segment / (n_segments - 1)
             scale = 1.0e-4 + (1.0 - 1.0e-4) * frac
-            _set_tersoff_scale(tersoff, params_row, scale)
-
             steps_this_segment = min(ramp_step, total_steps - segment * ramp_step)
+
+            if tersoff is not None:
+                integrator.forces.remove(tersoff)
+            tersoff = _add_liu_o_connor_tersoff(
+                integrator=integrator,
+                nlist=tersoff_nlist,
+                row=params_row,
+                initial_scale=scale,
+            )
+
             if segment % report_interval == 0 or segment == n_segments - 1:
-                mags = _as_tersoff_params(params_row, scale)["magnitudes"]
+                mags = (scale * params_row["A1"], scale * params_row["A2"])
                 progress_pct = 100.0 * (segment + 1) / n_segments
                 print(
                     f"Stage=tersoff_equil progress={progress_pct:.1f}% "
@@ -347,7 +340,6 @@ def main() -> None:
                 )
             sim.run(steps_this_segment)
 
-        _set_tersoff_scale(tersoff, params_row, 1.0)
         print("Stage=tersoff_equil ramp done", flush=True)
 
         dt_ramp_steps = 100_000
@@ -377,6 +369,13 @@ def main() -> None:
         integrator.dt = dt_end
         print("Stage=tersoff_equil dt_ramp done", flush=True)
         print("Stage=tersoff_equil done", flush=True)
+    else:
+        tersoff = _add_liu_o_connor_tersoff(
+            integrator=integrator,
+            nlist=tersoff_nlist,
+            row=params_row,
+            initial_scale=1.0,
+        )
 
     print(
         f"Stage=production start steps={cfg.production_steps}",

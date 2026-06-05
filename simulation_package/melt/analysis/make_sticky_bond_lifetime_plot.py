@@ -27,6 +27,7 @@ DEFAULT_DPI = 1000
 DEFAULT_TICK_FONTSIZE = 8
 DEFAULT_LABEL_FONTSIZE = 10
 DEFAULT_OUTPUT_NAME = "sticky_bond_lifetime_vs_epsilon.svg"
+MIN_RESOLVED_EPSILON = 12.0
 LEGACY_OUTPUT_NAMES = (
     "ln_bond_tau_vs_epsilon.png",
     "ln_bond_tau_vs_epsilon.svg",
@@ -51,10 +52,22 @@ def parse_args() -> argparse.Namespace:
         default=script_dir / "results" / DEFAULT_OUTPUT_NAME,
         help="Output SVG path.",
     )
+    parser.add_argument(
+        "--min-resolved-epsilon",
+        type=float,
+        default=MIN_RESOLVED_EPSILON,
+        help=(
+            "Only plot tau_s values at or above this epsilon. "
+            "The default excludes unresolved low-epsilon lifetimes."
+        ),
+    )
     return parser.parse_args()
 
 
-def load_summary_points(summary_csv: Path) -> tuple[np.ndarray, np.ndarray]:
+def load_summary_points(
+    summary_csv: Path,
+    min_resolved_epsilon: float = MIN_RESOLVED_EPSILON,
+) -> tuple[np.ndarray, np.ndarray]:
     if not summary_csv.is_file():
         raise FileNotFoundError(f"Missing summary CSV: {summary_csv}")
 
@@ -71,12 +84,20 @@ def load_summary_points(summary_csv: Path) -> tuple[np.ndarray, np.ndarray]:
         for row in reader:
             epsilon = float(row["epsilon"])
             tau_s = float(row["tau_s_mean"])
-            if np.isfinite(epsilon) and np.isfinite(tau_s) and tau_s > 0.0:
+            if (
+                np.isfinite(epsilon)
+                and epsilon >= min_resolved_epsilon
+                and np.isfinite(tau_s)
+                and tau_s > 0.0
+            ):
                 epsilons.append(epsilon)
                 tau_s_values.append(tau_s)
 
     if not epsilons:
-        raise ValueError(f"No finite positive tau_s values found in {summary_csv}")
+        raise ValueError(
+            f"No resolved finite positive tau_s values found in {summary_csv} "
+            f"for epsilon >= {min_resolved_epsilon:g}"
+        )
 
     order = np.argsort(np.asarray(epsilons, dtype=np.float64))
     epsilon_arr = np.asarray(epsilons, dtype=np.float64)[order]
@@ -93,7 +114,10 @@ def remove_legacy_outputs(output_path: Path) -> None:
 
 def main() -> None:
     args = parse_args()
-    epsilon, tau_s = load_summary_points(args.summary_csv)
+    epsilon, tau_s = load_summary_points(
+        args.summary_csv,
+        args.min_resolved_epsilon,
+    )
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     remove_legacy_outputs(args.output)

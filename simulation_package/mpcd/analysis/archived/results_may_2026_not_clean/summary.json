@@ -1,0 +1,612 @@
+{
+  "0": {
+    "bonded_pair_count_mean": {
+      "mean": 0.3196179053607742,
+      "stderr": 0.0013012738438771053,
+      "n_finite": 10
+    },
+    "p_open_mean": {
+      "mean": 0.9983004751677879,
+      "stderr": 6.949890058088054e-06,
+      "n_finite": 10
+    },
+    "bonding_probability_mean": {
+      "mean": 0.0016995248322122121,
+      "stderr": 6.949890058089853e-06,
+      "n_finite": 10
+    },
+    "gelation_epsilon_mean": {
+      "mean": -0.9949014255033634,
+      "stderr": 2.084967017426608e-05,
+      "n_finite": 10
+    },
+    "stickers_per_chain": {
+      "mean": 4.0,
+      "stderr": 0.0,
+      "n_finite": 10
+    },
+    "p_c": {
+      "mean": 0.33333333333333337,
+      "stderr": 1.850371707708594e-17,
+      "n_finite": 10
+    },
+    "frac_bond0_mean": {
+      "mean": 0.9983004751677879,
+      "stderr": 6.949890058088054e-06,
+      "n_finite": 10
+    },
+    "frac_bond1_mean": {
+      "mean": 0.0016989544231436969,
+      "stderr": 6.979406622904218e-06,
+      "n_finite": 10
+    },
+    "frac_bond_gt1_mean": {
+      "mean": 5.704090685084003e-07,
+      "stderr": 9.919729578973983e-08,
+      "n_finite": 10
+    },
+    "clump_fraction_mean": {
+      "mean": 1.7112272055252012e-06,
+      "stderr": 2.9759188736921946e-07,
+      "n_finite": 10
+    },
+    "intra_bonds_mean": {
+      "mean": 0.20326494423742186,
+      "stderr": 0.0009698110062176478,
+      "n_finite": 10
+    },
+    "inter_bonds_mean": {
+      "mean": 0.11635296112335229,
+      "stderr": 0.001073313643154175,
+      "n_finite": 10
+    },
+    "intra_inter_ratio": {
+      "mean": 1.7484241328050991,
+      "stderr": 0.01927785180163145,
+      "n_finite": 10
+    },
+    "number_average_cluster_size": {
+      "mean": 1.0012520156258318,
+      "stderr": 1.1621291825042248e-05,
+      "n_finite": 10
+    },
+    "weight_average_cluster_size": {
+      "mean": 1.0024782276237505,
+      "stderr": 2.3250850462208784e-05,
+      "n_finite": 10
+    },
+    "largest_cluster_size": {
+      "mean": 1.109473240401215,
+      "stderr": 0.0009534427832429758,
+      "n_finite": 10
+    },
+    "largest_cluster_fraction": {
+      "mean": 0.011802906812781051,
+      "stderr": 1.0143008332367065e-05,
+      "n_finite": 10
+    },
+    "rate_assoc": {
+      "mean": 2.395606211454608e-09,
+      "stderr": 2.6301263062258543e-10,
+      "n_finite": 10
+    },
+    "rate_passive": {
+      "mean": 8.485762552424423e-07,
+      "stderr": 3.6070321766618894e-09,
+      "n_finite": 10
+    },
+    "assoc_events_per_time": {
+      "mean": 8.992201374413344e-07,
+      "stderr": 9.872789518292169e-08,
+      "n_finite": 10
+    },
+    "passive_events_per_time": {
+      "mean": 0.000318522312570597,
+      "stderr": 1.3517484454524344e-06,
+      "n_finite": 10
+    },
+    "tau_s": {
+      "mean": 128.67671029629724,
+      "stderr": 2.8223774102018866,
+      "n_finite": 10
+    },
+    "tau_b": {
+      "mean": 986287354.9087903,
+      "stderr": 233933273.25396675,
+      "n_finite": 10
+    },
+    "diffusion_coefficient": {
+      "mean": 99.91233624443637,
+      "stderr": 32.827225763628114,
+      "n_finite": 10
+    }
+  },
+  "6": {
+    "bonded_pair_count_mean": {
+      "mean": 9.961783386950426,
+      "stderr": 0.010377714325312905,
+      "n_finite": 10
+    },
+    "p_open_mean": {
+      "mean": 0.9470124486425489,
+      "stderr": 5.5211418454520814e-05,
+      "n_finite": 10
+    },
+    "bonding_probability_mean": {
+      "mean": 0.05298755135745137,
+      "stderr": 5.521141845451326e-05,
+      "n_finite": 10
+    },
+    "gelation_epsilon_mean": {
+      "mean": -0.841037345927646,
+      "stderr": 0.00016563425536354008,
+      "n_finite": 10
+    },
+    "stickers_per_chain": {
+      "mean": 4.0,
+      "stderr": 0.0,
+      "n_finite": 10
+    },
+    "p_c": {
+      "mean": 0.33333333333333337,
+      "stderr": 1.850371707708594e-17,
+      "n_finite": 10
+    },
+    "frac_bond0_mean": {
+      "mean": 0.9470124486425489,
+      "stderr": 5.5211418454520814e-05,
+      "n_finite": 10
+    },
+    "frac_bond1_mean": {
+      "mean": 0.052986893209847286,
+      "stderr": 5.522284644180267e-05,
+      "n_finite": 10
+    },
+    "frac_bond_gt1_mean": {
+      "mean": 6.581476040794621e-07,
+      "stderr": 1.8499959693100675e-07,
+      "n_finite": 10
+    },
+    "clump_fraction_mean": {
+      "mean": 1.974442812238386e-06,
+      "stderr": 5.549987907930203e-07,
+      "n_finite": 10
+    },
+    "intra_bonds_mean": {
+      "mean": 6.345351810607935,
+      "stderr": 0.0076930001469383965,
+      "n_finite": 10
+    },
+    "inter_bonds_mean": {
+      "mean": 3.61643157634249,
+      "stderr": 0.0071621842027149146,
+      "n_finite": 10
+    },
+    "intra_inter_ratio": {
+      "mean": 1.7546521339872627,
+      "stderr": 0.004116890739731193,
+      "n_finite": 10
+    },
+    "number_average_cluster_size": {
+      "mean": 1.040032597732118,
+      "stderr": 8.090677379861903e-05,
+      "n_finite": 10
+    },
+    "weight_average_cluster_size": {
+      "mean": 1.080286109926508,
+      "stderr": 0.00016089334218920406,
+      "n_finite": 10
+    },
+    "largest_cluster_size": {
+      "mean": 2.1438587808298273,
+      "stderr": 0.0012509899272542218,
+      "n_finite": 10
+    },
+    "largest_cluster_fraction": {
+      "mean": 0.02280700830670496,
+      "stderr": 1.330840348142086e-05,
+      "n_finite": 10
+    },
+    "rate_assoc": {
+      "mean": 2.42676996921564e-06,
+      "stderr": 1.1580679192773785e-08,
+      "n_finite": 10
+    },
+    "rate_passive": {
+      "mean": 2.52171576363334e-05,
+      "stderr": 2.0974672156649958e-08,
+      "n_finite": 10
+    },
+    "assoc_events_per_time": {
+      "mean": 0.0008641148325358852,
+      "stderr": 4.078213921802969e-06,
+      "n_finite": 10
+    },
+    "passive_events_per_time": {
+      "mean": 0.008979244349117307,
+      "stderr": 6.957126047236378e-06,
+      "n_finite": 10
+    },
+    "tau_s": {
+      "mean": 226.7052587261294,
+      "stderr": 0.39341511222290226,
+      "n_finite": 10
+    },
+    "tau_b": {
+      "mean": 48128350.71680398,
+      "stderr": 275920.82599673595,
+      "n_finite": 10
+    },
+    "diffusion_coefficient": {
+      "mean": 120.62977347970823,
+      "stderr": 26.448063433202222,
+      "n_finite": 10
+    }
+  },
+  "12": {
+    "bonded_pair_count_mean": {
+      "mean": 103.02110863647613,
+      "stderr": 0.01661989825788945,
+      "n_finite": 10
+    },
+    "p_open_mean": {
+      "mean": 0.4520155550992399,
+      "stderr": 8.837326496132135e-05,
+      "n_finite": 10
+    },
+    "bonding_probability_mean": {
+      "mean": 0.54798444490076,
+      "stderr": 8.837326496132495e-05,
+      "n_finite": 10
+    },
+    "gelation_epsilon_mean": {
+      "mean": 0.6439533347022806,
+      "stderr": 0.0002651197948839599,
+      "n_finite": 10
+    },
+    "stickers_per_chain": {
+      "mean": 4.0,
+      "stderr": 0.0,
+      "n_finite": 10
+    },
+    "p_c": {
+      "mean": 0.33333333333333337,
+      "stderr": 1.850371707708594e-17,
+      "n_finite": 10
+    },
+    "frac_bond0_mean": {
+      "mean": 0.4520155550992399,
+      "stderr": 8.837326496132135e-05,
+      "n_finite": 10
+    },
+    "frac_bond1_mean": {
+      "mean": 0.5479842693947322,
+      "stderr": 8.834283918832089e-05,
+      "n_finite": 10
+    },
+    "frac_bond_gt1_mean": {
+      "mean": 1.7550602775452324e-07,
+      "stderr": 5.472361876425535e-08,
+      "n_finite": 10
+    },
+    "clump_fraction_mean": {
+      "mean": 5.265180832635697e-07,
+      "stderr": 1.64170856292766e-07,
+      "n_finite": 10
+    },
+    "intra_bonds_mean": {
+      "mean": 66.07005691660481,
+      "stderr": 0.03424384483716718,
+      "n_finite": 10
+    },
+    "inter_bonds_mean": {
+      "mean": 36.951051719871316,
+      "stderr": 0.04027733757460365,
+      "n_finite": 10
+    },
+    "intra_inter_ratio": {
+      "mean": 1.7880701569424406,
+      "stderr": 0.002827675568127897,
+      "n_finite": 10
+    },
+    "number_average_cluster_size": {
+      "mean": 1.54012881604586,
+      "stderr": 0.0008035043245130971,
+      "n_finite": 10
+    },
+    "weight_average_cluster_size": {
+      "mean": 2.345403935898177,
+      "stderr": 0.0033849575505867906,
+      "n_finite": 10
+    },
+    "largest_cluster_size": {
+      "mean": 6.565883032252742,
+      "stderr": 0.014518107535337652,
+      "n_finite": 10
+    },
+    "largest_cluster_fraction": {
+      "mean": 0.06984981949204683,
+      "stderr": 0.00015444795250355565,
+      "n_finite": 10
+    },
+    "rate_assoc": {
+      "mean": 0.00019561561808506257,
+      "stderr": 3.0384151855706255e-07,
+      "n_finite": 10
+    },
+    "rate_passive": {
+      "mean": 0.00015875245141607695,
+      "stderr": 7.751709301531179e-08,
+      "n_finite": 10
+    },
+    "assoc_events_per_time": {
+      "mean": 0.033246312489688165,
+      "stderr": 5.020763814350364e-05,
+      "n_finite": 10
+    },
+    "passive_events_per_time": {
+      "mean": 0.02698115822471539,
+      "stderr": 1.2210353345228882e-05,
+      "n_finite": 10
+    },
+    "tau_s": {
+      "mean": 1640.464575084917,
+      "stderr": 3.269032953320526,
+      "n_finite": 10
+    },
+    "tau_b": {
+      "mean": 58609.96659273056,
+      "stderr": 1704.2349050374582,
+      "n_finite": 10
+    },
+    "diffusion_coefficient": {
+      "mean": 88.65332473927907,
+      "stderr": 20.98943238135467,
+      "n_finite": 10
+    }
+  },
+  "15": {
+    "bonded_pair_count_mean": {
+      "mean": 150.82872226346615,
+      "stderr": 0.016010207237454065,
+      "n_finite": 10
+    },
+    "p_open_mean": {
+      "mean": 0.1977195843666251,
+      "stderr": 8.516481894181428e-05,
+      "n_finite": 10
+    },
+    "bonding_probability_mean": {
+      "mean": 0.802280415633375,
+      "stderr": 8.516481894182736e-05,
+      "n_finite": 10
+    },
+    "gelation_epsilon_mean": {
+      "mean": 1.4068412469001248,
+      "stderr": 0.0002554944568254362,
+      "n_finite": 10
+    },
+    "stickers_per_chain": {
+      "mean": 4.0,
+      "stderr": 0.0,
+      "n_finite": 10
+    },
+    "p_c": {
+      "mean": 0.33333333333333337,
+      "stderr": 1.850371707708594e-17,
+      "n_finite": 10
+    },
+    "frac_bond0_mean": {
+      "mean": 0.1977195843666251,
+      "stderr": 8.516481894181428e-05,
+      "n_finite": 10
+    },
+    "frac_bond1_mean": {
+      "mean": 0.8022803936951215,
+      "stderr": 8.516896653819598e-05,
+      "n_finite": 10
+    },
+    "frac_bond_gt1_mean": {
+      "mean": 2.1938253469315405e-08,
+      "stderr": 2.1938253469315405e-08,
+      "n_finite": 10
+    },
+    "clump_fraction_mean": {
+      "mean": 6.581476040794621e-08,
+      "stderr": 6.58147604079462e-08,
+      "n_finite": 10
+    },
+    "intra_bonds_mean": {
+      "mean": 99.18069784706755,
+      "stderr": 0.10041155986186857,
+      "n_finite": 10
+    },
+    "inter_bonds_mean": {
+      "mean": 51.648024416398584,
+      "stderr": 0.09340089641891067,
+      "n_finite": 10
+    },
+    "intra_inter_ratio": {
+      "mean": 1.9204067085659677,
+      "stderr": 0.0053790868733380555,
+      "n_finite": 10
+    },
+    "number_average_cluster_size": {
+      "mean": 1.8126433982966426,
+      "stderr": 0.002072499422952904,
+      "n_finite": 10
+    },
+    "weight_average_cluster_size": {
+      "mean": 3.637393840791465,
+      "stderr": 0.00875835283649277,
+      "n_finite": 10
+    },
+    "largest_cluster_size": {
+      "mean": 10.247216035634745,
+      "stderr": 0.029529960663671646,
+      "n_finite": 10
+    },
+    "largest_cluster_fraction": {
+      "mean": 0.10901293654930957,
+      "stderr": 0.0003141485176985724,
+      "n_finite": 10
+    },
+    "rate_assoc": {
+      "mean": 0.0001108963628569928,
+      "stderr": 1.80195028068252e-07,
+      "n_finite": 10
+    },
+    "rate_passive": {
+      "mean": 0.0001880159730912203,
+      "stderr": 1.5237934654556744e-07,
+      "n_finite": 10
+    },
+    "assoc_events_per_time": {
+      "mean": 0.008244365616234945,
+      "stderr": 1.5462554752107223e-05,
+      "n_finite": 10
+    },
+    "passive_events_per_time": {
+      "mean": 0.013977619204751693,
+      "stderr": 1.2395150210708788e-05,
+      "n_finite": 10
+    },
+    "tau_s": {
+      "mean": 13470.015579299949,
+      "stderr": 61.66684875067298,
+      "n_finite": 10
+    },
+    "tau_b": {
+      "mean": 3197.945837228047,
+      "stderr": 4.413715678591515,
+      "n_finite": 10
+    },
+    "diffusion_coefficient": {
+      "mean": 110.52737012672199,
+      "stderr": 20.2799194326445,
+      "n_finite": 10
+    }
+  },
+  "18": {
+    "bonded_pair_count_mean": {
+      "mean": 174.4865379856471,
+      "stderr": 0.05997323086574499,
+      "n_finite": 10
+    },
+    "p_open_mean": {
+      "mean": 0.07188011709762172,
+      "stderr": 0.00031900654715821315,
+      "n_finite": 10
+    },
+    "bonding_probability_mean": {
+      "mean": 0.9281198829023782,
+      "stderr": 0.0003190065471582197,
+      "n_finite": 10
+    },
+    "gelation_epsilon_mean": {
+      "mean": 1.784359648707135,
+      "stderr": 0.0009570196414746321,
+      "n_finite": 10
+    },
+    "stickers_per_chain": {
+      "mean": 4.0,
+      "stderr": 0.0,
+      "n_finite": 10
+    },
+    "p_c": {
+      "mean": 0.33333333333333337,
+      "stderr": 1.850371707708594e-17,
+      "n_finite": 10
+    },
+    "frac_bond0_mean": {
+      "mean": 0.07188011709762172,
+      "stderr": 0.00031900654715821315,
+      "n_finite": 10
+    },
+    "frac_bond1_mean": {
+      "mean": 0.9281198829023782,
+      "stderr": 0.0003190065471582069,
+      "n_finite": 10
+    },
+    "frac_bond_gt1_mean": {
+      "mean": 0.0,
+      "stderr": 0.0,
+      "n_finite": 10
+    },
+    "clump_fraction_mean": {
+      "mean": 0.0,
+      "stderr": 0.0,
+      "n_finite": 10
+    },
+    "intra_bonds_mean": {
+      "mean": 119.01804008908684,
+      "stderr": 0.7345727225472396,
+      "n_finite": 10
+    },
+    "inter_bonds_mean": {
+      "mean": 55.46849789656026,
+      "stderr": 0.6837706600636949,
+      "n_finite": 10
+    },
+    "intra_inter_ratio": {
+      "mean": 2.150152600443781,
+      "stderr": 0.04027868610563822,
+      "n_finite": 10
+    },
+    "number_average_cluster_size": {
+      "mean": 1.7774591288521466,
+      "stderr": 0.016183869592986476,
+      "n_finite": 10
+    },
+    "weight_average_cluster_size": {
+      "mean": 4.421500541436101,
+      "stderr": 0.0855194719047375,
+      "n_finite": 10
+    },
+    "largest_cluster_size": {
+      "mean": 12.789540542769942,
+      "stderr": 0.19863325827092115,
+      "n_finite": 10
+    },
+    "largest_cluster_fraction": {
+      "mean": 0.13605894194436335,
+      "stderr": 0.002113119768839166,
+      "n_finite": 10
+    },
+    "rate_assoc": {
+      "mean": 2.4946231634765417e-05,
+      "stderr": 1.6396562933123912e-07,
+      "n_finite": 10
+    },
+    "rate_passive": {
+      "mean": 0.00016166680090312245,
+      "stderr": 7.910383272653219e-07,
+      "n_finite": 10
+    },
+    "assoc_events_per_time": {
+      "mean": 0.0006742121762085464,
+      "stderr": 5.2040510860651695e-06,
+      "n_finite": 10
+    },
+    "passive_events_per_time": {
+      "mean": 0.004368586041907275,
+      "stderr": 8.6235289153097e-06,
+      "n_finite": 10
+    },
+    "tau_s": {
+      "mean": 176596.79644990005,
+      "stderr": 2033.4911450503894,
+      "n_finite": 10
+    },
+    "tau_b": {
+      "mean": 5773.19508720026,
+      "stderr": 56.76240786378776,
+      "n_finite": 10
+    },
+    "diffusion_coefficient": {
+      "mean": 87.35417862194961,
+      "stderr": 17.12644679078949,
+      "n_finite": 10
+    }
+  }
+}

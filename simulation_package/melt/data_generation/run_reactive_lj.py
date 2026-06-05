@@ -25,6 +25,7 @@ import time
 from dataclasses import asdict, dataclass
 
 import cupy as cp
+import gsd.hoomd
 import numba
 import numpy as np
 
@@ -867,6 +868,46 @@ def write_checkpoint(path: str, sim: hoomd.Simulation) -> None:
     hoomd.write.GSD.write(state=sim.state, filename=path, mode="wb")
 
 
+def flush_output_writers(sim: hoomd.Simulation) -> None:
+    for writer in sim.operations.writers:
+        flush = getattr(writer, "flush", None)
+        if flush is not None:
+            flush()
+
+
+def prune_gsd_after_step(path: str, max_step: int) -> int:
+    """Remove frames later than max_step from a GSD file by rewriting it."""
+    if not os.path.exists(path):
+        return 0
+
+    needs_prune = False
+    with gsd.hoomd.open(path, "r") as traj:
+        for frame in traj:
+            if int(frame.configuration.step) > max_step:
+                needs_prune = True
+                break
+    if not needs_prune:
+        return 0
+
+    tmp_path = f"{path}.prune_tmp"
+    dropped = 0
+    try:
+        with gsd.hoomd.open(path, "r") as source, gsd.hoomd.open(
+            tmp_path,
+            "w",
+        ) as pruned:
+            for frame in source:
+                if int(frame.configuration.step) <= max_step:
+                    pruned.append(frame)
+                else:
+                    dropped += 1
+        os.replace(tmp_path, path)
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+    return dropped
+
+
 def build_integrator(
     cfg: SimulationConfig,
     nlist: hoomd.md.nlist.NeighborList,
@@ -1214,6 +1255,17 @@ def main() -> int:
                 "Checkpoint predates completion of pre-production. This workflow "
                 "only supports resuming from production checkpoints."
             )
+        checkpoint_step = int(sim.timestep)
+        for output_path in output_files:
+            dropped_frames = prune_gsd_after_step(output_path, checkpoint_step)
+            if dropped_frames > 0:
+                print(
+                    "Stage=resume pruned_output "
+                    f"file={os.path.basename(output_path)} "
+                    f"checkpoint_timestep={checkpoint_step} "
+                    f"dropped_frames={dropped_frames}",
+                    flush=True,
+                )
     else:
         sim.state.thermalize_particle_momenta(
             filter=hoomd.filter.All(), kT=cfg.temperature
@@ -1429,6 +1481,7 @@ def main() -> int:
                 args.walltime_safety_buffer_seconds + last_chunk_elapsed
             )
             if remaining_walltime_seconds <= required_margin_seconds:
+                flush_output_writers(sim)
                 write_checkpoint(checkpoint_path, sim)
                 cumulative_walltime_seconds = (
                     prior_cumulative_production_walltime_seconds + production_elapsed
@@ -1461,6 +1514,7 @@ def main() -> int:
         production_elapsed += chunk_elapsed
         last_chunk_elapsed = chunk_elapsed
 
+        flush_output_writers(sim)
         write_checkpoint(checkpoint_path, sim)
         current_timestep = int(sim.timestep)
         current_completed_steps = current_timestep - pre_production_total_steps

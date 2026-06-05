@@ -37,7 +37,9 @@ log "Step 6/8: Starting clump-fraction analysis"
 ANALYSIS_START_TS=$(date +%s)
 python -u "${WORK_DIR}/make_plot.py" \
     --input-root "${WORK_DIR}/outputs" \
-    --output "${WORK_DIR}/results/clump_fraction_violin.svg" \
+    --clump-output "${WORK_DIR}/results/clump_fraction_violin.svg" \
+    --paired-output "${WORK_DIR}/results/paired_fraction_violin.svg" \
+    --excess-coordination-output "${WORK_DIR}/results/excess_coordination_violin.svg" \
     --n-jobs "${SLURM_CPUS_PER_TASK}"
 
 ANALYSIS_END_TS=$(date +%s)

@@ -5,7 +5,7 @@
 #SBATCH --time=23:59:00
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=2G
-#SBATCH --array=0-49%24
+#SBATCH --array=0-49%11
 #SBATCH --requeue
 #SBATCH --open-mode=append
 #SBATCH --output=logs/generate_data_%A_%a.out

@@ -2,7 +2,7 @@
 #SBATCH --job-name=tauDumpSweep
 #SBATCH --time=00:30:00
 #SBATCH --cpus-per-task=16
-#SBATCH --mem=6G
+#SBATCH --mem=8G
 #SBATCH --nodes=1
 #SBATCH --output=logs/run_tau_s_tau_b_vs_dump_interval_%j.out
 
@@ -37,9 +37,10 @@ mkdir -p logs
 log "Step 7/8: Measuring tau_s and tau_b versus dump interval"
 PLOT_START_TS=$(date +%s)
 python -u "${WORK_DIR}/analysis/make_tau_s_tau_b_vs_dump_interval.py" \
-    --input-root "${WORK_DIR}/data_generation/outputs" \
-    --output "${WORK_DIR}/analysis/tau_s_tau_b_vs_dump_interval.png" \
+    --input-root "${WORK_DIR}/data_generation/outputs_clean" \
+    --output "${WORK_DIR}/analysis/tau_s_tau_b_vs_dump_interval.svg" \
     --csv-output "${WORK_DIR}/analysis/tau_s_tau_b_vs_dump_interval.csv" \
+    --epsilons 6 12 15 18 \
     --n-jobs "${SLURM_CPUS_PER_TASK}"
 PLOT_END_TS=$(date +%s)
 log "Step 7/8 complete: tau sweep finished in $((PLOT_END_TS - PLOT_START_TS)) seconds"

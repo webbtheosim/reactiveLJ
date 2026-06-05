@@ -48,8 +48,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        default=script_dir / "bond_persistence_vs_time_lag.png",
-        help="Output PNG path.",
+        default=script_dir / "bond_persistence_vs_time_lag.svg",
+        help="Output svg path.",
     )
     parser.add_argument(
         "--epsilons",

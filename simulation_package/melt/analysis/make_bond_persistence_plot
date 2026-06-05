@@ -1,0 +1,610 @@
+#!/usr/bin/env python3
+"""Plot eps=18 bond persistence times across ReactiveLJ weakening exponents."""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+import math
+import os
+import re
+import sys
+from collections import defaultdict
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, Iterable, List, Set, Tuple
+
+os.environ.setdefault(
+    "MPLCONFIGDIR",
+    str(Path(os.environ.get("TMPDIR", "/tmp")) / f"matplotlib-reactivelj-{os.getuid()}"),
+)
+os.environ.setdefault(
+    "XDG_CACHE_HOME",
+    str(Path(os.environ.get("TMPDIR", "/tmp")) / f"fontconfig-reactivelj-{os.getuid()}"),
+)
+
+import matplotlib
+import numpy as np
+import gsd.hoomd
+from joblib import Parallel, delayed
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+
+ANALYSIS_DIR = Path(__file__).resolve().parent
+MELT_DIR = ANALYSIS_DIR.parent
+sys.path.insert(0, str(ANALYSIS_DIR))
+
+from analysis_utils import (  # noqa: E402
+    MultiTauSetCorrelationAccumulator,
+    compute_r_thresh,
+    find_sticker_neighbor_pairs,
+    fit_exponential_semilog_linear_region,
+)
+
+
+DEFAULT_CONDITIONS: Tuple[Tuple[float, float], ...] = (
+    (18.0, 2.0),
+    (18.0, 4.0),
+    (18.0, 8.0),
+)
+DEFAULT_WEAKENING_EXPONENT = 4.0
+FALLBACK_TAU_R0 = 4041.0
+MAX_ANALYSIS_LAG_TAU_R0 = 1000.0
+MAX_ANALYSIS_LAG_TIME = FALLBACK_TAU_R0 * MAX_ANALYSIS_LAG_TAU_R0
+BAR_COLOR = "#e77500"
+EDGE_COLOR = "#121212"
+FIGSIZE = (2.2, 4.0 / 3.0)
+FIG_DPI = 1000
+ConditionKey = Tuple[float, float]
+
+
+@dataclass(frozen=True)
+class RunSpec:
+    trajectory_path: Path
+    metadata_path: Path
+    epsilon: float
+    weakening_exponent: float
+    replicate: int
+
+
+@dataclass(frozen=True)
+class TauResult:
+    epsilon: float
+    weakening_exponent: float
+    replicate: int
+    trajectory_path: str
+    tau_s: float
+    n_frames: int
+    n_lags: int
+    frame_dt: float
+
+
+def log(message: str) -> None:
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{timestamp}] {message}", flush=True)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Compute replicate-level sticker bond persistence times for the "
+            "eps=18, p=2/4/8 ReactiveLJ melt runs and plot tau_s by p."
+        )
+    )
+    parser.add_argument(
+        "--input-root",
+        type=Path,
+        default=MELT_DIR / "data_generation" / "outputs_clean",
+        help="Root containing eps_*/rep_*/trajectory.gsd and p_*/eps_*/rep_* runs.",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=ANALYSIS_DIR / "results" / "bond_persistence_tau_s_by_p.svg",
+        help="Output SVG path.",
+    )
+    parser.add_argument(
+        "--csv-output",
+        type=Path,
+        default=ANALYSIS_DIR / "results" / "bond_persistence_tau_s_by_p.csv",
+        help="Output CSV path for replicate-level tau_s values.",
+    )
+    parser.add_argument(
+        "--conditions",
+        nargs="*",
+        default=[f"eps={eps:g},p={p:g}" for eps, p in DEFAULT_CONDITIONS],
+        help="Exact conditions to compare, formatted as eps=18,p=2 or 18:2.",
+    )
+    parser.add_argument(
+        "--analysis-stride",
+        type=int,
+        default=1,
+        help="Stride over saved trajectory frames during bond-correlation analysis.",
+    )
+    parser.add_argument(
+        "--n-jobs",
+        type=int,
+        default=0,
+        help="Parallel replicate workers. 0 uses SLURM_CPUS_PER_TASK or all CPUs.",
+    )
+    parser.add_argument(
+        "--max-replicates-per-condition",
+        type=int,
+        default=0,
+        help="Optional cap per condition for quick checks. 0 uses all discovered replicates.",
+    )
+    parser.add_argument(
+        "--plot-only",
+        action="store_true",
+        help=(
+            "Read replicate-level tau_s values from --csv-output and regenerate "
+            "only the SVG plot without recomputing trajectories."
+        ),
+    )
+    return parser.parse_args()
+
+
+def parse_condition_token(token: str) -> ConditionKey:
+    text = token.strip()
+    if not text:
+        raise RuntimeError("Empty condition token.")
+    if ":" in text and "=" not in text:
+        eps_text, p_text = text.split(":", 1)
+        return float(eps_text), float(p_text)
+
+    epsilon: float | None = None
+    weakening_exponent: float | None = None
+    for part in text.split(","):
+        if "=" not in part:
+            raise RuntimeError(
+                f"Could not parse condition '{token}'. Use eps=18,p=2 or 18:2."
+            )
+        name, value = part.split("=", 1)
+        normalized = name.strip().lower().replace("-", "_")
+        if normalized in {"eps", "epsilon", "reactive_epsilon"}:
+            epsilon = float(value)
+        elif normalized in {"p", "weakening_exponent", "weakening"}:
+            weakening_exponent = float(value)
+        else:
+            raise RuntimeError(f"Unknown condition field '{name}' in '{token}'.")
+
+    if epsilon is None or weakening_exponent is None:
+        raise RuntimeError(f"Condition '{token}' must specify both epsilon and p.")
+    return epsilon, weakening_exponent
+
+
+def parse_condition_filters(tokens: Iterable[str]) -> Set[ConditionKey]:
+    return {parse_condition_token(token) for token in tokens}
+
+
+def value_matches(value: float, target: float) -> bool:
+    return math.isclose(value, target, rel_tol=0.0, abs_tol=1.0e-12)
+
+
+def condition_is_selected(
+    epsilon: float,
+    weakening_exponent: float,
+    selected_conditions: Set[ConditionKey],
+) -> bool:
+    return any(
+        value_matches(epsilon, selected_epsilon)
+        and value_matches(weakening_exponent, selected_weakening_exponent)
+        for selected_epsilon, selected_weakening_exponent in selected_conditions
+    )
+
+
+def load_metadata(path: Path) -> Dict:
+    if not path.exists():
+        return {}
+    with path.open("r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def parse_prefixed_float(path: Path, prefix: str) -> float | None:
+    pattern = re.compile(rf"^{re.escape(prefix)}([-+]?\d+(?:\.\d+)?)$")
+    for part in reversed(path.parts):
+        match = pattern.match(part)
+        if match is not None:
+            return float(match.group(1))
+    return None
+
+
+def parse_replicate(path: Path) -> int:
+    for part in reversed(path.parts):
+        match = re.match(r"^rep_(\d+)$", part)
+        if match is not None:
+            return int(match.group(1))
+    return 0
+
+
+def infer_condition(run_dir: Path, metadata: Dict) -> ConditionKey | None:
+    epsilon = metadata.get("reactive_epsilon", parse_prefixed_float(run_dir, "eps_"))
+    if epsilon is None:
+        return None
+
+    weakening_exponent = metadata.get("weakening_exponent")
+    if weakening_exponent is None:
+        weakening_exponent = parse_prefixed_float(run_dir, "p_")
+    if weakening_exponent is None:
+        weakening_exponent = DEFAULT_WEAKENING_EXPONENT
+    return float(epsilon), float(weakening_exponent)
+
+
+def discover_runs(
+    input_root: Path,
+    selected_conditions: Set[ConditionKey],
+    max_replicates_per_condition: int,
+) -> List[RunSpec]:
+    excluded_dirs = {"TEST", "TEST_CPU_REACTIVELJ", "archived"}
+    runs: List[RunSpec] = []
+    for root, dirs, files in os.walk(input_root, topdown=True):
+        dirs[:] = sorted(d for d in dirs if d not in excluded_dirs)
+        if "trajectory.gsd" not in files:
+            continue
+
+        run_dir = Path(root)
+        metadata_path = run_dir / "metadata.json"
+        metadata = load_metadata(metadata_path)
+        condition = infer_condition(run_dir, metadata)
+        if condition is None:
+            continue
+        epsilon, weakening_exponent = condition
+        if not condition_is_selected(epsilon, weakening_exponent, selected_conditions):
+            continue
+        runs.append(
+            RunSpec(
+                trajectory_path=run_dir / "trajectory.gsd",
+                metadata_path=metadata_path,
+                epsilon=epsilon,
+                weakening_exponent=weakening_exponent,
+                replicate=int(metadata.get("replicate", parse_replicate(run_dir))),
+            )
+        )
+
+    runs.sort(
+        key=lambda run: (
+            run.epsilon,
+            run.weakening_exponent,
+            run.replicate,
+            str(run.trajectory_path),
+        )
+    )
+    if max_replicates_per_condition > 0:
+        kept: List[RunSpec] = []
+        counts: Dict[ConditionKey, int] = defaultdict(int)
+        for run in runs:
+            key = (run.epsilon, run.weakening_exponent)
+            if counts[key] >= max_replicates_per_condition:
+                continue
+            kept.append(run)
+            counts[key] += 1
+        runs = kept
+    return runs
+
+
+def sticker_tags_from_metadata(metadata: Dict) -> np.ndarray:
+    n_chains = int(metadata.get("n_chains", 0))
+    chain_length = int(metadata.get("chain_length", 0))
+    stickers_per_chain = int(metadata.get("stickers_per_chain", 0))
+    if n_chains <= 0 or chain_length <= 0 or stickers_per_chain <= 0:
+        return np.empty((0,), dtype=np.int32)
+
+    segment = chain_length / stickers_per_chain
+    offsets = np.rint((np.arange(stickers_per_chain) + 0.5) * segment).astype(np.int32) - 1
+    offsets = np.clip(offsets, 0, chain_length - 1)
+    offsets = np.unique(offsets)
+    if offsets.size != stickers_per_chain:
+        raise RuntimeError(
+            "Could not reconstruct sticker tags from metadata; non-unique offsets detected."
+        )
+
+    chain_starts = np.arange(n_chains, dtype=np.int32) * chain_length
+    return (chain_starts[:, None] + offsets[None, :]).reshape(-1)
+
+
+def compute_replicate_tau_s(run: RunSpec, analysis_stride: int) -> TauResult:
+    metadata = load_metadata(run.metadata_path)
+    run_label = (
+        f"eps={run.epsilon:g}, p={run.weakening_exponent:g}, "
+        f"rep={run.replicate:g}"
+    )
+    log(f"{run_label}: start ({run.trajectory_path})")
+    with gsd.hoomd.open(str(run.trajectory_path), "r") as traj:
+        n_frames = len(traj)
+        if n_frames == 0:
+            raise RuntimeError(f"No frames found in {run.trajectory_path}")
+        n_analyzed = (n_frames + int(analysis_stride) - 1) // int(analysis_stride)
+        progress_interval = max(1, n_analyzed // 10)
+
+        first = traj[0]
+        box_length = float(first.configuration.box[0])
+        chain_length = int(metadata.get("chain_length", 1))
+        expected_sticker_tags = sticker_tags_from_metadata(metadata)
+        if expected_sticker_tags.size != first.particles.N:
+            raise RuntimeError(
+                f"Sticker-only trajectory size mismatch in {run.trajectory_path}: "
+                f"expected {expected_sticker_tags.size} particles, got {first.particles.N}."
+            )
+
+        n_stickers = int(first.particles.N)
+        dt = float(metadata.get("dt", 0.005))
+        frame_steps = int(
+            metadata.get("trajectory_frame_steps", metadata.get("frame_steps", 100_000))
+        )
+        frame_dt = dt * float(frame_steps) * float(analysis_stride)
+        if not np.isfinite(frame_dt) or frame_dt <= 0.0:
+            raise RuntimeError(f"Invalid frame_dt for {run.trajectory_path}: {frame_dt}")
+
+        corr_lag_frames = max(
+            1,
+            int(np.floor(MAX_ANALYSIS_LAG_TIME / frame_dt + 1.0e-12)),
+        )
+        reactive_sigma = float(metadata.get("reactive_sigma", 1.0))
+        r_thresh = float(compute_r_thresh(reactive_sigma))
+        # Bond persistence only needs pairs inside the bond-identification
+        # threshold. The full analysis uses the larger ReactiveLJ outer radius
+        # because other observables need coordination/crowding neighbors.
+        pair_cutoff = r_thresh
+
+        bond_corr = MultiTauSetCorrelationAccumulator(corr_lag_frames)
+        for analyzed_idx, frame_idx in enumerate(
+            range(0, n_frames, int(analysis_stride)),
+            start=1,
+        ):
+            positions = traj[frame_idx].particles.position
+            pair_i, pair_j, pair_dist = find_sticker_neighbor_pairs(
+                positions,
+                box_length,
+                pair_cutoff,
+            )
+            bond_ids = np.empty((0,), dtype=np.int64)
+            if pair_dist.size > 0:
+                bond_mask = pair_dist < r_thresh
+                bond_i = pair_i[bond_mask]
+                bond_j = pair_j[bond_mask]
+                if bond_i.size > 0:
+                    low = np.minimum(bond_i, bond_j).astype(np.int64, copy=False)
+                    high = np.maximum(bond_i, bond_j).astype(np.int64, copy=False)
+                    bond_ids = low * np.int64(n_stickers) + high
+                    bond_ids.sort()
+            bond_corr.update(bond_ids)
+            if analyzed_idx % progress_interval == 0 or analyzed_idx == n_analyzed:
+                progress_pct = 100.0 * float(analyzed_idx) / float(n_analyzed)
+                log(
+                    f"{run_label}: frame progress {analyzed_idx}/{n_analyzed} "
+                    f"({progress_pct:.1f}%)"
+                )
+
+    valid_length = bond_corr.valid_length()
+    cs = bond_corr.correlation()[:valid_length]
+    cs_time = bond_corr.lag_indices[:valid_length].astype(np.float64) * frame_dt
+    tau_s = fit_exponential_semilog_linear_region(cs_time, cs)
+    log(f"{run_label}: done (tau_s={tau_s:.6g})")
+    return TauResult(
+        epsilon=run.epsilon,
+        weakening_exponent=run.weakening_exponent,
+        replicate=run.replicate,
+        trajectory_path=str(run.trajectory_path),
+        tau_s=float(tau_s),
+        n_frames=n_frames,
+        n_lags=int(valid_length),
+        frame_dt=float(frame_dt),
+    )
+
+
+def resolve_n_jobs(requested: int) -> int:
+    if requested > 0:
+        return requested
+    slurm_cpus = os.environ.get("SLURM_CPUS_PER_TASK")
+    if slurm_cpus:
+        try:
+            parsed = int(slurm_cpus)
+            if parsed > 0:
+                return parsed
+        except ValueError:
+            pass
+    return max(1, os.cpu_count() or 1)
+
+
+def write_replicate_csv(path: Path, results: List[TauResult]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(
+            [
+                "epsilon",
+                "weakening_exponent",
+                "replicate",
+                "tau_s",
+                "n_frames",
+                "n_lags",
+                "frame_dt",
+                "trajectory_path",
+            ]
+        )
+        for result in sorted(
+            results,
+            key=lambda item: (
+                item.epsilon,
+                item.weakening_exponent,
+                item.replicate,
+                item.trajectory_path,
+            ),
+        ):
+            writer.writerow(
+                [
+                    f"{result.epsilon:.12g}",
+                    f"{result.weakening_exponent:.12g}",
+                    result.replicate,
+                    f"{result.tau_s:.12g}",
+                    result.n_frames,
+                    result.n_lags,
+                    f"{result.frame_dt:.12g}",
+                    result.trajectory_path,
+                ]
+            )
+
+
+def read_replicate_csv(path: Path) -> List[TauResult]:
+    results: List[TauResult] = []
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        for row in reader:
+            results.append(
+                TauResult(
+                    epsilon=float(row["epsilon"]),
+                    weakening_exponent=float(row["weakening_exponent"]),
+                    replicate=int(row["replicate"]),
+                    trajectory_path=row.get("trajectory_path", ""),
+                    tau_s=float(row["tau_s"]),
+                    n_frames=int(row.get("n_frames", 0) or 0),
+                    n_lags=int(row.get("n_lags", 0) or 0),
+                    frame_dt=float(row.get("frame_dt", "nan")),
+                )
+            )
+    return results
+
+
+def finite_positive_tau_values(results: Iterable[TauResult]) -> np.ndarray:
+    values = np.asarray([result.tau_s for result in results], dtype=np.float64)
+    return values[np.isfinite(values) & (values > 0.0)]
+
+
+def write_bar_plot(
+    path: Path,
+    selected_conditions: Set[ConditionKey],
+    results: List[TauResult],
+) -> None:
+    by_condition: Dict[ConditionKey, List[TauResult]] = defaultdict(list)
+    for result in results:
+        by_condition[(result.epsilon, result.weakening_exponent)].append(result)
+
+    conditions = sorted(selected_conditions, key=lambda item: (item[0], item[1]))
+    p_values: List[float] = []
+    means: List[float] = []
+    lower_errors: List[float] = []
+    upper_errors: List[float] = []
+    for condition in conditions:
+        tau_values = finite_positive_tau_values(by_condition.get(condition, []))
+        if tau_values.size == 0:
+            continue
+        p_values.append(condition[1])
+        mean = float(np.mean(tau_values))
+        means.append(mean)
+        lower_errors.append(mean - float(np.min(tau_values)))
+        upper_errors.append(float(np.max(tau_values)) - mean)
+
+    if not p_values:
+        raise RuntimeError("No finite positive tau_s values available for plotting.")
+
+    x = np.arange(len(p_values), dtype=np.float64)
+    mean_arr = np.asarray(means, dtype=np.float64)
+    lower_arr = np.asarray(lower_errors, dtype=np.float64)
+    upper_arr = np.asarray(upper_errors, dtype=np.float64)
+    lower_bounds = mean_arr - lower_arr
+    upper_bounds = mean_arr + upper_arr
+    y_min_data = float(np.min(lower_bounds[lower_bounds > 0.0]))
+    y_max_data = float(np.max(upper_bounds))
+    y_axis_min = 10.0 ** np.floor(np.log10(y_min_data))
+    y_axis_max = 10.0 ** np.ceil(np.log10(y_max_data))
+    bar_heights = mean_arr - y_axis_min
+
+    fig, ax = plt.subplots(figsize=FIGSIZE, dpi=FIG_DPI)
+    ax.set_yscale("log")
+    ax.bar(
+        x,
+        bar_heights,
+        bottom=y_axis_min,
+        width=0.58,
+        color=BAR_COLOR,
+        edgecolor=EDGE_COLOR,
+        linewidth=0.9,
+        zorder=2,
+    )
+    ax.errorbar(
+        x,
+        mean_arr,
+        yerr=np.vstack((lower_arr, upper_arr)),
+        fmt="none",
+        ecolor=EDGE_COLOR,
+        elinewidth=0.9,
+        capsize=3.0,
+        capthick=0.9,
+        zorder=3,
+    )
+    ax.set_ylim(y_axis_min, y_axis_max)
+    ax.set_xlabel(r"$p$", fontsize=10)
+    ax.set_ylabel(r"$\tau_s$", fontsize=10)
+    ax.set_xticks(x)
+    ax.set_xticklabels([f"{p:g}" for p in p_values])
+    ax.tick_params(axis="both", which="both", labelsize=8)
+    ax.grid(axis="y", which="major", alpha=0.22, linewidth=0.5)
+    ax.set_axisbelow(True)
+    for spine in ax.spines.values():
+        spine.set_color(EDGE_COLOR)
+        spine.set_linewidth(0.8)
+    fig.tight_layout(pad=0.35)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(path, format="svg")
+    plt.close(fig)
+
+
+def main() -> None:
+    args = parse_args()
+    if args.analysis_stride < 1:
+        raise RuntimeError("--analysis-stride must be >= 1.")
+    if args.max_replicates_per_condition < 0:
+        raise RuntimeError("--max-replicates-per-condition must be >= 0.")
+
+    selected_conditions = parse_condition_filters(args.conditions)
+    if args.plot_only:
+        results = read_replicate_csv(args.csv_output)
+        write_bar_plot(args.output, selected_conditions, results)
+        log(f"Read replicate tau_s values from {args.csv_output}")
+        log(f"Wrote bond persistence plot to {args.output}")
+        return
+
+    runs = discover_runs(
+        input_root=args.input_root,
+        selected_conditions=selected_conditions,
+        max_replicates_per_condition=int(args.max_replicates_per_condition),
+    )
+    if not runs:
+        raise RuntimeError(f"No matching trajectories found under {args.input_root}")
+
+    discovered_conditions = {(run.epsilon, run.weakening_exponent) for run in runs}
+    missing_conditions = [
+        condition
+        for condition in sorted(selected_conditions)
+        if not condition_is_selected(condition[0], condition[1], discovered_conditions)
+    ]
+    if missing_conditions:
+        formatted = ", ".join(f"eps={eps:g},p={p:g}" for eps, p in missing_conditions)
+        raise RuntimeError(f"No trajectories found for selected condition(s): {formatted}")
+
+    n_jobs = min(resolve_n_jobs(int(args.n_jobs)), len(runs))
+    log(
+        f"Discovered {len(runs)} trajectories across "
+        f"{len(discovered_conditions)} conditions"
+    )
+    log(f"Computing replicate bond persistence fits with n_jobs={n_jobs}")
+    results = Parallel(n_jobs=n_jobs, verbose=10)(
+        delayed(compute_replicate_tau_s)(run, int(args.analysis_stride))
+        for run in runs
+    )
+    finite_count = sum(np.isfinite(result.tau_s) and result.tau_s > 0.0 for result in results)
+    if finite_count == 0:
+        raise RuntimeError("No finite positive tau_s values were fitted.")
+
+    write_replicate_csv(args.csv_output, results)
+    write_bar_plot(args.output, selected_conditions, results)
+    log(f"Wrote replicate tau_s values to {args.csv_output}")
+    log(f"Wrote bond persistence plot to {args.output}")
+
+
+if __name__ == "__main__":
+    main()

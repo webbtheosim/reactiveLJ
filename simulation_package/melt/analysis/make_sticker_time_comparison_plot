@@ -1,0 +1,242 @@
+#!/usr/bin/env python3
+"""Plot tau_s and tau_b side by side from existing replicate-level CSV files."""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import math
+import os
+from collections import defaultdict
+from pathlib import Path
+from typing import Dict, Iterable, List, Set, Tuple
+
+os.environ.setdefault(
+    "MPLCONFIGDIR",
+    str(Path(os.environ.get("TMPDIR", "/tmp")) / f"matplotlib-reactivelj-{os.getuid()}"),
+)
+os.environ.setdefault(
+    "XDG_CACHE_HOME",
+    str(Path(os.environ.get("TMPDIR", "/tmp")) / f"fontconfig-reactivelj-{os.getuid()}"),
+)
+
+import matplotlib
+import numpy as np
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+
+ANALYSIS_DIR = Path(__file__).resolve().parent
+DEFAULT_CONDITIONS: Tuple[Tuple[float, float], ...] = (
+    (18.0, 2.0),
+    (18.0, 4.0),
+    (18.0, 8.0),
+)
+TAU_S_COLOR = "#e77500"
+TAU_B_COLOR = "#121212"
+EDGE_COLOR = "#121212"
+FIGSIZE = (2.2, 4.0 / 3.0)
+FIG_DPI = 1000
+ConditionKey = Tuple[float, float]
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Make a combined side-by-side bar plot of tau_s and tau_b versus p "
+            "using existing replicate-level CSV files."
+        )
+    )
+    parser.add_argument(
+        "--tau-s-csv",
+        type=Path,
+        default=ANALYSIS_DIR / "results" / "bond_persistence_tau_s_by_p.csv",
+        help="Input CSV with replicate-level tau_s values.",
+    )
+    parser.add_argument(
+        "--tau-b-csv",
+        type=Path,
+        default=ANALYSIS_DIR / "results" / "brachiation_tau_b_by_p.csv",
+        help="Input CSV with replicate-level tau_b values.",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=ANALYSIS_DIR / "results" / "sticker_tau_s_tau_b_by_p.svg",
+        help="Output SVG path.",
+    )
+    parser.add_argument(
+        "--conditions",
+        nargs="*",
+        default=[f"eps={eps:g},p={p:g}" for eps, p in DEFAULT_CONDITIONS],
+        help="Exact conditions to compare, formatted as eps=18,p=2 or 18:2.",
+    )
+    return parser.parse_args()
+
+
+def parse_condition_token(token: str) -> ConditionKey:
+    text = token.strip()
+    if not text:
+        raise RuntimeError("Empty condition token.")
+    if ":" in text and "=" not in text:
+        eps_text, p_text = text.split(":", 1)
+        return float(eps_text), float(p_text)
+
+    epsilon: float | None = None
+    weakening_exponent: float | None = None
+    for part in text.split(","):
+        if "=" not in part:
+            raise RuntimeError(
+                f"Could not parse condition '{token}'. Use eps=18,p=2 or 18:2."
+            )
+        name, value = part.split("=", 1)
+        normalized = name.strip().lower().replace("-", "_")
+        if normalized in {"eps", "epsilon", "reactive_epsilon"}:
+            epsilon = float(value)
+        elif normalized in {"p", "weakening_exponent", "weakening"}:
+            weakening_exponent = float(value)
+        else:
+            raise RuntimeError(f"Unknown condition field '{name}' in '{token}'.")
+
+    if epsilon is None or weakening_exponent is None:
+        raise RuntimeError(f"Condition '{token}' must specify both epsilon and p.")
+    return epsilon, weakening_exponent
+
+
+def parse_condition_filters(tokens: Iterable[str]) -> Set[ConditionKey]:
+    return {parse_condition_token(token) for token in tokens}
+
+
+def value_matches(value: float, target: float) -> bool:
+    return math.isclose(value, target, rel_tol=0.0, abs_tol=1.0e-12)
+
+
+def condition_is_selected(
+    epsilon: float,
+    weakening_exponent: float,
+    selected_conditions: Set[ConditionKey],
+) -> bool:
+    return any(
+        value_matches(epsilon, selected_epsilon)
+        and value_matches(weakening_exponent, selected_weakening_exponent)
+        for selected_epsilon, selected_weakening_exponent in selected_conditions
+    )
+
+
+def read_means_by_condition(
+    csv_path: Path,
+    tau_column: str,
+    selected_conditions: Set[ConditionKey],
+) -> Dict[ConditionKey, float]:
+    values_by_condition: Dict[ConditionKey, List[float]] = defaultdict(list)
+    with csv_path.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        for row in reader:
+            epsilon = float(row["epsilon"])
+            weakening_exponent = float(row["weakening_exponent"])
+            if not condition_is_selected(
+                epsilon,
+                weakening_exponent,
+                selected_conditions,
+            ):
+                continue
+            value = float(row[tau_column])
+            if np.isfinite(value) and value > 0.0:
+                values_by_condition[(epsilon, weakening_exponent)].append(value)
+
+    means: Dict[ConditionKey, float] = {}
+    for condition, values in values_by_condition.items():
+        if values:
+            means[condition] = float(np.mean(np.asarray(values, dtype=np.float64)))
+    return means
+
+
+def write_plot(
+    output: Path,
+    selected_conditions: Set[ConditionKey],
+    tau_s_means: Dict[ConditionKey, float],
+    tau_b_means: Dict[ConditionKey, float],
+) -> None:
+    conditions = sorted(selected_conditions, key=lambda item: (item[0], item[1]))
+    missing = [
+        condition
+        for condition in conditions
+        if condition not in tau_s_means or condition not in tau_b_means
+    ]
+    if missing:
+        formatted = ", ".join(f"eps={eps:g},p={p:g}" for eps, p in missing)
+        raise RuntimeError(f"Missing tau_s or tau_b data for: {formatted}")
+
+    p_values = [condition[1] for condition in conditions]
+    tau_s = np.asarray([tau_s_means[condition] for condition in conditions], dtype=np.float64)
+    tau_b = np.asarray([tau_b_means[condition] for condition in conditions], dtype=np.float64)
+    all_values = np.concatenate((tau_s, tau_b))
+    all_values = all_values[np.isfinite(all_values) & (all_values > 0.0)]
+    if all_values.size == 0:
+        raise RuntimeError("No finite positive tau values available for plotting.")
+
+    y_axis_min = 10.0 ** np.floor(np.log10(float(np.min(all_values))))
+    y_axis_max = 10.0 ** np.ceil(np.log10(float(np.max(all_values))))
+    x = np.arange(len(p_values), dtype=np.float64)
+    width = 0.34
+
+    fig, ax = plt.subplots(figsize=FIGSIZE, dpi=FIG_DPI)
+    ax.set_yscale("log")
+    ax.bar(
+        x - width / 2.0,
+        tau_s - y_axis_min,
+        bottom=y_axis_min,
+        width=width,
+        color=TAU_S_COLOR,
+        edgecolor=EDGE_COLOR,
+        linewidth=0.8,
+        label=r"$\tau_s$",
+        zorder=2,
+    )
+    ax.bar(
+        x + width / 2.0,
+        tau_b - y_axis_min,
+        bottom=y_axis_min,
+        width=width,
+        color=TAU_B_COLOR,
+        edgecolor=EDGE_COLOR,
+        linewidth=0.8,
+        label=r"$\tau_b$",
+        zorder=2,
+    )
+    ax.set_ylim(y_axis_min, y_axis_max)
+    ax.set_xlabel(r"$p$", fontsize=10)
+    ax.set_ylabel(r"$\tau$", fontsize=10)
+    ax.set_xticks(x)
+    ax.set_xticklabels([f"{p:g}" for p in p_values])
+    ax.tick_params(axis="both", which="both", labelsize=8)
+    ax.grid(axis="y", which="major", alpha=0.22, linewidth=0.5)
+    ax.set_axisbelow(True)
+    ax.legend(
+        loc="upper left",
+        frameon=False,
+        fontsize=8,
+        handlelength=1.0,
+        borderaxespad=0.2,
+    )
+    for spine in ax.spines.values():
+        spine.set_color(EDGE_COLOR)
+        spine.set_linewidth(0.8)
+    fig.tight_layout(pad=0.35)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output, format="svg")
+    plt.close(fig)
+
+
+def main() -> None:
+    args = parse_args()
+    selected_conditions = parse_condition_filters(args.conditions)
+    tau_s_means = read_means_by_condition(args.tau_s_csv, "tau_s", selected_conditions)
+    tau_b_means = read_means_by_condition(args.tau_b_csv, "tau_b", selected_conditions)
+    write_plot(args.output, selected_conditions, tau_s_means, tau_b_means)
+    print(f"Wrote combined sticker-time plot to {args.output}", flush=True)
+
+
+if __name__ == "__main__":
+    main()

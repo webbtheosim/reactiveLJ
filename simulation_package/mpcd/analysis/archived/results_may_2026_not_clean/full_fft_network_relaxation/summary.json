@@ -1,0 +1,495 @@
+{
+  "description": "Full-FFT polymer-network relaxation from MPCD virial_tensor_log.gsd files. Solvent kinetic stress is not included.",
+  "replicate_count": 50,
+  "epsilon_values": [
+    0.0,
+    6.0,
+    12.0,
+    15.0,
+    18.0
+  ],
+  "replicates": [
+    {
+      "epsilon": 0.0,
+      "replicate": 1,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_0/rep_001/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484878,
+      "max_lag": 161625,
+      "max_time": 4040625.0
+    },
+    {
+      "epsilon": 0.0,
+      "replicate": 2,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_0/rep_002/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484910,
+      "max_lag": 161636,
+      "max_time": 4040900.0
+    },
+    {
+      "epsilon": 0.0,
+      "replicate": 3,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_0/rep_003/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484893,
+      "max_lag": 161635,
+      "max_time": 4040875.0
+    },
+    {
+      "epsilon": 0.0,
+      "replicate": 4,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_0/rep_004/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484882,
+      "max_lag": 161627,
+      "max_time": 4040675.0
+    },
+    {
+      "epsilon": 0.0,
+      "replicate": 5,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_0/rep_005/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484899,
+      "max_lag": 161632,
+      "max_time": 4040800.0
+    },
+    {
+      "epsilon": 0.0,
+      "replicate": 6,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_0/rep_006/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484889,
+      "max_lag": 161629,
+      "max_time": 4040725.0
+    },
+    {
+      "epsilon": 0.0,
+      "replicate": 7,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_0/rep_007/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484896,
+      "max_lag": 161631,
+      "max_time": 4040775.0
+    },
+    {
+      "epsilon": 0.0,
+      "replicate": 8,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_0/rep_008/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484893,
+      "max_lag": 161631,
+      "max_time": 4040775.0
+    },
+    {
+      "epsilon": 0.0,
+      "replicate": 9,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_0/rep_009/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484904,
+      "max_lag": 161634,
+      "max_time": 4040850.0
+    },
+    {
+      "epsilon": 0.0,
+      "replicate": 10,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_0/rep_010/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484904,
+      "max_lag": 161634,
+      "max_time": 4040850.0
+    },
+    {
+      "epsilon": 6.0,
+      "replicate": 1,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_6/rep_001/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484901,
+      "max_lag": 161639,
+      "max_time": 4040975.0
+    },
+    {
+      "epsilon": 6.0,
+      "replicate": 2,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_6/rep_002/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484876,
+      "max_lag": 161633,
+      "max_time": 4040825.0
+    },
+    {
+      "epsilon": 6.0,
+      "replicate": 3,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_6/rep_003/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484879,
+      "max_lag": 161634,
+      "max_time": 4040850.0
+    },
+    {
+      "epsilon": 6.0,
+      "replicate": 4,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_6/rep_004/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484873,
+      "max_lag": 161636,
+      "max_time": 4040900.0
+    },
+    {
+      "epsilon": 6.0,
+      "replicate": 5,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_6/rep_005/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484903,
+      "max_lag": 161637,
+      "max_time": 4040925.0
+    },
+    {
+      "epsilon": 6.0,
+      "replicate": 6,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_6/rep_006/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484901,
+      "max_lag": 161639,
+      "max_time": 4040975.0
+    },
+    {
+      "epsilon": 6.0,
+      "replicate": 7,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_6/rep_007/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484895,
+      "max_lag": 161636,
+      "max_time": 4040900.0
+    },
+    {
+      "epsilon": 6.0,
+      "replicate": 8,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_6/rep_008/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484901,
+      "max_lag": 161633,
+      "max_time": 4040825.0
+    },
+    {
+      "epsilon": 6.0,
+      "replicate": 9,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_6/rep_009/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484896,
+      "max_lag": 161636,
+      "max_time": 4040900.0
+    },
+    {
+      "epsilon": 6.0,
+      "replicate": 10,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_6/rep_010/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484878,
+      "max_lag": 161633,
+      "max_time": 4040825.0
+    },
+    {
+      "epsilon": 12.0,
+      "replicate": 1,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_12/rep_001/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484887,
+      "max_lag": 161639,
+      "max_time": 4040975.0
+    },
+    {
+      "epsilon": 12.0,
+      "replicate": 2,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_12/rep_002/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484885,
+      "max_lag": 161633,
+      "max_time": 4040825.0
+    },
+    {
+      "epsilon": 12.0,
+      "replicate": 3,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_12/rep_003/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484884,
+      "max_lag": 161634,
+      "max_time": 4040850.0
+    },
+    {
+      "epsilon": 12.0,
+      "replicate": 4,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_12/rep_004/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484877,
+      "max_lag": 161635,
+      "max_time": 4040875.0
+    },
+    {
+      "epsilon": 12.0,
+      "replicate": 5,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_12/rep_005/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484896,
+      "max_lag": 161639,
+      "max_time": 4040975.0
+    },
+    {
+      "epsilon": 12.0,
+      "replicate": 6,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_12/rep_006/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484903,
+      "max_lag": 161636,
+      "max_time": 4040900.0
+    },
+    {
+      "epsilon": 12.0,
+      "replicate": 7,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_12/rep_007/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484903,
+      "max_lag": 161638,
+      "max_time": 4040950.0
+    },
+    {
+      "epsilon": 12.0,
+      "replicate": 8,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_12/rep_008/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484887,
+      "max_lag": 161637,
+      "max_time": 4040925.0
+    },
+    {
+      "epsilon": 12.0,
+      "replicate": 9,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_12/rep_009/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484911,
+      "max_lag": 161639,
+      "max_time": 4040975.0
+    },
+    {
+      "epsilon": 12.0,
+      "replicate": 10,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_12/rep_010/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484894,
+      "max_lag": 161639,
+      "max_time": 4040975.0
+    },
+    {
+      "epsilon": 15.0,
+      "replicate": 1,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_15/rep_001/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484883,
+      "max_lag": 161635,
+      "max_time": 4040875.0
+    },
+    {
+      "epsilon": 15.0,
+      "replicate": 2,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_15/rep_002/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484916,
+      "max_lag": 161639,
+      "max_time": 4040975.0
+    },
+    {
+      "epsilon": 15.0,
+      "replicate": 3,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_15/rep_003/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484887,
+      "max_lag": 161637,
+      "max_time": 4040925.0
+    },
+    {
+      "epsilon": 15.0,
+      "replicate": 4,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_15/rep_004/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484877,
+      "max_lag": 161633,
+      "max_time": 4040825.0
+    },
+    {
+      "epsilon": 15.0,
+      "replicate": 5,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_15/rep_005/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484880,
+      "max_lag": 161634,
+      "max_time": 4040850.0
+    },
+    {
+      "epsilon": 15.0,
+      "replicate": 6,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_15/rep_006/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484903,
+      "max_lag": 161634,
+      "max_time": 4040850.0
+    },
+    {
+      "epsilon": 15.0,
+      "replicate": 7,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_15/rep_007/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484901,
+      "max_lag": 161639,
+      "max_time": 4040975.0
+    },
+    {
+      "epsilon": 15.0,
+      "replicate": 8,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_15/rep_008/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484895,
+      "max_lag": 161636,
+      "max_time": 4040900.0
+    },
+    {
+      "epsilon": 15.0,
+      "replicate": 9,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_15/rep_009/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484883,
+      "max_lag": 161638,
+      "max_time": 4040950.0
+    },
+    {
+      "epsilon": 15.0,
+      "replicate": 10,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_15/rep_010/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484902,
+      "max_lag": 161637,
+      "max_time": 4040925.0
+    },
+    {
+      "epsilon": 18.0,
+      "replicate": 1,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_18/rep_001/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484895,
+      "max_lag": 161638,
+      "max_time": 4040950.0
+    },
+    {
+      "epsilon": 18.0,
+      "replicate": 2,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_18/rep_002/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484901,
+      "max_lag": 161639,
+      "max_time": 4040975.0
+    },
+    {
+      "epsilon": 18.0,
+      "replicate": 3,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_18/rep_003/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484877,
+      "max_lag": 161634,
+      "max_time": 4040850.0
+    },
+    {
+      "epsilon": 18.0,
+      "replicate": 4,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_18/rep_004/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484900,
+      "max_lag": 161638,
+      "max_time": 4040950.0
+    },
+    {
+      "epsilon": 18.0,
+      "replicate": 5,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_18/rep_005/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484878,
+      "max_lag": 161636,
+      "max_time": 4040900.0
+    },
+    {
+      "epsilon": 18.0,
+      "replicate": 6,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_18/rep_006/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484903,
+      "max_lag": 161635,
+      "max_time": 4040875.0
+    },
+    {
+      "epsilon": 18.0,
+      "replicate": 7,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_18/rep_007/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484889,
+      "max_lag": 161637,
+      "max_time": 4040925.0
+    },
+    {
+      "epsilon": 18.0,
+      "replicate": 8,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_18/rep_008/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484908,
+      "max_lag": 161636,
+      "max_time": 4040900.0
+    },
+    {
+      "epsilon": 18.0,
+      "replicate": 9,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_18/rep_009/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484890,
+      "max_lag": 161636,
+      "max_time": 4040900.0
+    },
+    {
+      "epsilon": 18.0,
+      "replicate": 10,
+      "virial_path": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs/eps_18/rep_010/virial_tensor_log.gsd",
+      "sample_dt": 25.0,
+      "n_samples": 484883,
+      "max_lag": 161635,
+      "max_time": 4040875.0
+    }
+  ],
+  "aggregates": {
+    "0": {
+      "n_time_points": 161636,
+      "min_time": 25.0,
+      "max_time": 4040900.0,
+      "max_replicates_per_lag": 10
+    },
+    "6": {
+      "n_time_points": 161639,
+      "min_time": 25.0,
+      "max_time": 4040975.0,
+      "max_replicates_per_lag": 10
+    },
+    "12": {
+      "n_time_points": 161639,
+      "min_time": 25.0,
+      "max_time": 4040975.0,
+      "max_replicates_per_lag": 10
+    },
+    "15": {
+      "n_time_points": 161639,
+      "min_time": 25.0,
+      "max_time": 4040975.0,
+      "max_replicates_per_lag": 10
+    },
+    "18": {
+      "n_time_points": 161639,
+      "min_time": 25.0,
+      "max_time": 4040975.0,
+      "max_replicates_per_lag": 10
+    }
+  }
+}

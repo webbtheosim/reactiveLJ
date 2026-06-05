@@ -5,18 +5,18 @@
 #SBATCH --time=01:02:00
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=1G
-#SBATCH --array=0-59%24
-#SBATCH --output=logs/generate_tersoff_data_%A_%a.out
+#SBATCH --array=0-39%24
+#SBATCH --output=/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/melt/tersoff_comparison/logs/generate_tersoff_data_%A_%a.out
 
 # NOTE:
-# - This script assumes 6 epsilon values (3, 6, 9, 12, 15, 18) and 10 replicates each (60 total tasks).
+# - This script assumes 4 epsilon values (6, 12, 15, 18) and 10 replicates each (40 total tasks).
 # - If you change EPSILONS or N_REP below, update the --array range accordingly.
-# Set 0-59 to run all replicates.
+# Set 0-39 to run all replicates.
 
 module purge
 source ~/.bashrc
 module load anaconda3/2025.12
-conda activate '/home/mc7345/micromamba/envs/reactiveLJ_paper'
+conda activate '/scratch/gpfs/WEBB/chertok/conda_envs/reactiveLJ_oconnor_tersoff_comparison'
 
 set -euo pipefail
 
@@ -30,7 +30,7 @@ WORK_DIR="$(cd "${TERSOFF_DIR}/.." && pwd)"
 cd "${WORK_DIR}"
 mkdir -p "${TERSOFF_DIR}/logs"
 
-EPSILONS=(3 6 9 12 15 18)
+EPSILONS=(6 12 15 18)
 N_REP=${N_REP:-10}
 TOTAL=$(( ${#EPSILONS[@]} * N_REP ))
 

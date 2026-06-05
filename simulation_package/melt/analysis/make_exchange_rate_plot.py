@@ -99,46 +99,74 @@ def remove_legacy_outputs(output_path: Path) -> None:
             candidate.unlink()
 
 
-def main() -> None:
-    args = parse_args()
-    epsilon, turnover_assoc, turnover_dissoc = load_summary_points(args.summary_csv)
+def epsilon_category_labels(epsilon: np.ndarray) -> list[str]:
+    return ["None" if np.isclose(value, 0.0) else f"{value:g}" for value in epsilon]
 
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    remove_legacy_outputs(args.output)
+
+def write_exchange_rate_plot(
+    output: Path | str,
+    epsilon: np.ndarray,
+    turnover_assoc: np.ndarray,
+    turnover_dissoc: np.ndarray,
+) -> None:
+    output_path = Path(output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    remove_legacy_outputs(output_path)
 
     fig, ax = plt.subplots(figsize=DEFAULT_FIGSIZE, dpi=DEFAULT_DPI)
-    ax.plot(
-        epsilon,
-        turnover_assoc,
+    x = np.arange(epsilon.size, dtype=np.float64)
+    width = 0.36
+    all_values = np.concatenate((turnover_assoc, turnover_dissoc))
+    positive_values = all_values[np.isfinite(all_values) & (all_values > 0.0)]
+    if positive_values.size != all_values.size:
+        raise ValueError("Exchange-rate bars require finite positive values on a log axis")
+    ax.set_yscale("log")
+    ax.plot(np.arange(positive_values.size), positive_values, alpha=0.0, linewidth=0.0)
+    ax.relim()
+    ax.autoscale_view()
+    y_min, y_max = ax.get_ylim()
+    ax.cla()
+    ax.bar(
+        x - width / 2.0,
+        turnover_assoc - y_min,
+        width=width,
+        bottom=y_min,
         color=ASSOCIATIVE_COLOR,
-        marker="o",
-        markersize=4.0,
-        linewidth=1.8,
+        edgecolor=PASSIVE_COLOR,
+        linewidth=0.7,
         label="assoc.",
     )
-    ax.plot(
-        epsilon,
-        turnover_dissoc,
+    ax.bar(
+        x + width / 2.0,
+        turnover_dissoc - y_min,
+        width=width,
+        bottom=y_min,
         color=PASSIVE_COLOR,
-        marker="o",
-        markersize=4.0,
-        linewidth=1.8,
+        edgecolor=PASSIVE_COLOR,
+        linewidth=0.7,
         label="dissoc.",
     )
-    ax.set_xscale("linear")
     ax.set_yscale("log")
+    ax.set_ylim(y_min, y_max)
     ax.set_xlabel(r"$\varepsilon_\mathrm{reactiveLJ}$", fontsize=DEFAULT_LABEL_FONTSIZE)
     ax.set_ylabel(r"$\nu_\mathrm{app}$", fontsize=DEFAULT_LABEL_FONTSIZE)
-    ax.set_xticks(epsilon)
-    ax.set_xticklabels([f"{value:g}" for value in epsilon])
+    ax.set_xticks(x)
+    ax.set_xticklabels(epsilon_category_labels(epsilon))
+    ax.set_xlim(-0.5, epsilon.size - 0.5)
     ax.tick_params(axis="both", which="both", labelsize=DEFAULT_TICK_FONTSIZE)
     ax.legend(frameon=False, fontsize=DEFAULT_LEGEND_FONTSIZE)
     ax.grid(alpha=0.2, axis="y")
     fig.tight_layout()
-    fig.savefig(args.output)
+    fig.savefig(output_path)
     plt.close(fig)
 
-    print(f"Wrote exchange-rate comparison plot to {args.output}", flush=True)
+    print(f"Wrote exchange-rate comparison plot to {output_path}", flush=True)
+
+
+def main() -> None:
+    args = parse_args()
+    epsilon, turnover_assoc, turnover_dissoc = load_summary_points(args.summary_csv)
+    write_exchange_rate_plot(args.output, epsilon, turnover_assoc, turnover_dissoc)
 
 
 if __name__ == "__main__":

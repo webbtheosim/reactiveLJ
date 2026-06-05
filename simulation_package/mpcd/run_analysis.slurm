@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=reactiveLJ_mpcd_analysis
-#SBATCH --time=01:02:00
-#SBATCH --cpus-per-task=16
-#SBATCH --mem=4G
+#SBATCH --time=06:00:00
+#SBATCH --cpus-per-task=11
+#SBATCH --mem=16G
 #SBATCH --nodes=1
 #SBATCH --output=logs/run_analysis_%j.out
 
@@ -37,11 +37,16 @@ cd "${WORK_DIR}"
 log "Step 6/8: Ensuring logs directory exists"
 mkdir -p logs
 
+INPUT_ROOT="${INPUT_ROOT:-${WORK_DIR}/data_generation/outputs_clean}"
+
 log "Step 7/8: Starting trajectory analysis"
+log "Input root: ${INPUT_ROOT}"
 ANALYSIS_START_TS=$(date +%s)
 python -u "${WORK_DIR}/analysis/analyze_trajectories.py" \
-    --input-root "${WORK_DIR}/data_generation/outputs" \
-    --output-dir "${WORK_DIR}/analysis/results"
+    --input-root "${INPUT_ROOT}" \
+    --output-dir "${WORK_DIR}/analysis/results" \
+    --max-lag-frames 0 \
+    --msd-max-lag-frames 0
 ANALYSIS_END_TS=$(date +%s)
 log "Step 7/8 complete: Analysis finished in $((ANALYSIS_END_TS - ANALYSIS_START_TS)) seconds"
 

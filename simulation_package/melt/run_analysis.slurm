@@ -2,7 +2,7 @@
 #SBATCH --job-name=reactiveLJ_analysis
 #SBATCH --time=06:00:00
 #SBATCH --cpus-per-task=49
-#SBATCH --mem=64G
+#SBATCH --mem=256G
 #SBATCH --nodes=1
 #SBATCH --output=logs/run_analysis_%j.out
 
@@ -39,12 +39,16 @@ cd "${WORK_DIR}"
 log "Step 6/8: Ensuring logs directory exists"
 mkdir -p logs
 
-log "Step 7/8: Starting trajectory analysis"
+WEAKENING_EXPONENTS=(${WEAKENING_EXPONENTS:-4})
+log "Step 7/8: Starting trajectory analysis for p=${WEAKENING_EXPONENTS[*]}"
 ANALYSIS_START_TS=$(date +%s)
 python -u "${WORK_DIR}/analysis/analyze_trajectories.py" \
-    --input-root "${WORK_DIR}/data_generation/outputs" \
+    --input-root "${WORK_DIR}/data_generation/outputs_clean" \
     --output-dir "${WORK_DIR}/analysis/results" \
-    --analysis-stride 1
+    --analysis-stride 1 \
+    --weakening-exponents "${WEAKENING_EXPONENTS[@]}" \
+    --plot-x-min-time 25.0 \
+    --plot-x-max-tau-r0 1000.0
 
 ANALYSIS_END_TS=$(date +%s)
 log "Step 7/8 complete: Analysis finished in $((ANALYSIS_END_TS - ANALYSIS_START_TS)) seconds"

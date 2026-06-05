@@ -22,7 +22,7 @@ source ~/.bashrc
 log "Step 3/8: Loading anaconda module"
 module load anaconda3/2025.12
 log "Step 4/8: Activating conda environment"
-conda activate '/home/mc7345/micromamba/envs/reactiveLJ_paper'
+conda activate '/scratch/gpfs/WEBB/chertok/conda_envs/reactiveLJ_oconnor_tersoff_comparison'
 
 set -euo pipefail
 

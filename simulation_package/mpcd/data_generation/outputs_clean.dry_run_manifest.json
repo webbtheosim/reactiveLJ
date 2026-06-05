@@ -1,0 +1,2273 @@
+{
+  "created_at": "2026-05-21T12:52:08",
+  "source_root": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs",
+  "clean_root": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/outputs_clean",
+  "raw_root": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/mpcd/data_generation/archived/outputs_raw_bad_overlaps",
+  "forward_gap_policy": "segment",
+  "downsample_factor": 20,
+  "downsample_files": [
+    "virial_tensor_log.gsd"
+  ],
+  "target_files": [
+    "trajectory.gsd",
+    "virial_tensor_log.gsd"
+  ],
+  "included_runs": 50,
+  "excluded_runs": 0,
+  "runs": [
+    {
+      "relative_dir": "eps_0/rep_001",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12126,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 3,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484948,
+          "output_frames": 484878,
+          "dropped_overlap_frames": 70,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_0/rep_002",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12124,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 1,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484923,
+          "output_frames": 484910,
+          "dropped_overlap_frames": 13,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_0/rep_003",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12122,
+          "output_frames": 12122,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484893,
+          "output_frames": 484893,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 1,
+          "missing_frame_count": 15,
+          "max_missing_in_one_gap": 15,
+          "forward_gap_examples": [
+            {
+              "frame_index": 173784,
+              "step_before": 870025000,
+              "step_after": 870105000,
+              "step_delta": 80000
+            }
+          ],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_0/rep_004",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12125,
+          "output_frames": 12122,
+          "dropped_overlap_frames": 3,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484989,
+          "output_frames": 484882,
+          "dropped_overlap_frames": 107,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_0/rep_005",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12125,
+          "output_frames": 12122,
+          "dropped_overlap_frames": 3,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 485006,
+          "output_frames": 484899,
+          "dropped_overlap_frames": 107,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_0/rep_006",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12124,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 1,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484899,
+          "output_frames": 484889,
+          "dropped_overlap_frames": 10,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_0/rep_007",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12127,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 4,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 485031,
+          "output_frames": 484896,
+          "dropped_overlap_frames": 135,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_0/rep_008",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12124,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 1,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484893,
+          "output_frames": 484893,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 1,
+          "missing_frame_count": 1,
+          "max_missing_in_one_gap": 1,
+          "forward_gap_examples": [
+            {
+              "frame_index": 173198,
+              "step_before": 867095000,
+              "step_after": 867105000,
+              "step_delta": 10000
+            }
+          ],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_0/rep_009",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12125,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 2,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484967,
+          "output_frames": 484904,
+          "dropped_overlap_frames": 63,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_0/rep_010",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12125,
+          "output_frames": 12122,
+          "dropped_overlap_frames": 3,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484996,
+          "output_frames": 484904,
+          "dropped_overlap_frames": 92,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_12/rep_001",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12123,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484887,
+          "output_frames": 484887,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 2,
+          "missing_frame_count": 33,
+          "max_missing_in_one_gap": 18,
+          "forward_gap_examples": [
+            {
+              "frame_index": 153184,
+              "step_before": 777125000,
+              "step_after": 777205000,
+              "step_delta": 80000
+            },
+            {
+              "frame_index": 322766,
+              "step_before": 1625110000,
+              "step_after": 1625205000,
+              "step_delta": 95000
+            }
+          ],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_12/rep_002",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12123,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484885,
+          "output_frames": 484885,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 2,
+          "missing_frame_count": 16,
+          "max_missing_in_one_gap": 9,
+          "forward_gap_examples": [
+            {
+              "frame_index": 152192,
+              "step_before": 772165000,
+              "step_after": 772205000,
+              "step_delta": 40000
+            },
+            {
+              "frame_index": 327983,
+              "step_before": 1651155000,
+              "step_after": 1651205000,
+              "step_delta": 50000
+            }
+          ],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_12/rep_003",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12123,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484884,
+          "output_frames": 484884,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 2,
+          "missing_frame_count": 20,
+          "max_missing_in_one_gap": 16,
+          "forward_gap_examples": [
+            {
+              "frame_index": 152195,
+              "step_before": 772180000,
+              "step_after": 772205000,
+              "step_delta": 25000
+            },
+            {
+              "frame_index": 324979,
+              "step_before": 1636120000,
+              "step_after": 1636205000,
+              "step_delta": 85000
+            }
+          ],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_12/rep_004",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12123,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484877,
+          "output_frames": 484877,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 2,
+          "missing_frame_count": 29,
+          "max_missing_in_one_gap": 17,
+          "forward_gap_examples": [
+            {
+              "frame_index": 153982,
+              "step_before": 781115000,
+              "step_after": 781205000,
+              "step_delta": 90000
+            },
+            {
+              "frame_index": 327170,
+              "step_before": 1647140000,
+              "step_after": 1647205000,
+              "step_delta": 65000
+            }
+          ],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_12/rep_005",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12123,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484896,
+          "output_frames": 484896,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 2,
+          "missing_frame_count": 23,
+          "max_missing_in_one_gap": 17,
+          "forward_gap_examples": [
+            {
+              "frame_index": 153393,
+              "step_before": 778170000,
+              "step_after": 778205000,
+              "step_delta": 35000
+            },
+            {
+              "frame_index": 324576,
+              "step_before": 1634115000,
+              "step_after": 1634205000,
+              "step_delta": 90000
+            }
+          ],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_12/rep_006",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12123,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484903,
+          "output_frames": 484903,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 2,
+          "missing_frame_count": 8,
+          "max_missing_in_one_gap": 5,
+          "forward_gap_examples": [
+            {
+              "frame_index": 154594,
+              "step_before": 784175000,
+              "step_after": 784205000,
+              "step_delta": 30000
+            },
+            {
+              "frame_index": 322591,
+              "step_before": 1624185000,
+              "step_after": 1624205000,
+              "step_delta": 20000
+            }
+          ],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_12/rep_007",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12123,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484903,
+          "output_frames": 484903,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 2,
+          "missing_frame_count": 12,
+          "max_missing_in_one_gap": 9,
+          "forward_gap_examples": [
+            {
+              "frame_index": 152396,
+              "step_before": 773185000,
+              "step_after": 773205000,
+              "step_delta": 20000
+            },
+            {
+              "frame_index": 323187,
+              "step_before": 1627155000,
+              "step_after": 1627205000,
+              "step_delta": 50000
+            }
+          ],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_12/rep_008",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12123,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484887,
+          "output_frames": 484887,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 2,
+          "missing_frame_count": 25,
+          "max_missing_in_one_gap": 15,
+          "forward_gap_examples": [
+            {
+              "frame_index": 158184,
+              "step_before": 802125000,
+              "step_after": 802205000,
+              "step_delta": 80000
+            },
+            {
+              "frame_index": 328374,
+              "step_before": 1653150000,
+              "step_after": 1653205000,
+              "step_delta": 55000
+            }
+          ],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_12/rep_009",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12123,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484911,
+          "output_frames": 484911,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 1,
+          "missing_frame_count": 9,
+          "max_missing_in_one_gap": 9,
+          "forward_gap_examples": [
+            {
+              "frame_index": 156190,
+              "step_before": 792155000,
+              "step_after": 792205000,
+              "step_delta": 50000
+            }
+          ],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_12/rep_010",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12123,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484894,
+          "output_frames": 484894,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 2,
+          "missing_frame_count": 26,
+          "max_missing_in_one_gap": 13,
+          "forward_gap_examples": [
+            {
+              "frame_index": 151586,
+              "step_before": 769135000,
+              "step_after": 769205000,
+              "step_delta": 70000
+            },
+            {
+              "frame_index": 320173,
+              "step_before": 1612135000,
+              "step_after": 1612205000,
+              "step_delta": 70000
+            }
+          ],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_15/rep_001",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12123,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484883,
+          "output_frames": 484883,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 2,
+          "missing_frame_count": 23,
+          "max_missing_in_one_gap": 16,
+          "forward_gap_examples": [
+            {
+              "frame_index": 152583,
+              "step_before": 774120000,
+              "step_after": 774205000,
+              "step_delta": 85000
+            },
+            {
+              "frame_index": 321376,
+              "step_before": 1618165000,
+              "step_after": 1618205000,
+              "step_delta": 40000
+            }
+          ],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_15/rep_002",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12123,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484916,
+          "output_frames": 484916,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 2,
+          "missing_frame_count": 2,
+          "max_missing_in_one_gap": 1,
+          "forward_gap_examples": [
+            {
+              "frame_index": 154998,
+              "step_before": 786195000,
+              "step_after": 786205000,
+              "step_delta": 10000
+            },
+            {
+              "frame_index": 327397,
+              "step_before": 1648195000,
+              "step_after": 1648205000,
+              "step_delta": 10000
+            }
+          ],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_15/rep_003",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12123,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484887,
+          "output_frames": 484887,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 2,
+          "missing_frame_count": 27,
+          "max_missing_in_one_gap": 18,
+          "forward_gap_examples": [
+            {
+              "frame_index": 157390,
+              "step_before": 798155000,
+              "step_after": 798205000,
+              "step_delta": 50000
+            },
+            {
+              "frame_index": 325972,
+              "step_before": 1641110000,
+              "step_after": 1641205000,
+              "step_delta": 95000
+            }
+          ],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_15/rep_004",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12123,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484877,
+          "output_frames": 484877,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 2,
+          "missing_frame_count": 24,
+          "max_missing_in_one_gap": 12,
+          "forward_gap_examples": [
+            {
+              "frame_index": 152187,
+              "step_before": 772140000,
+              "step_after": 772205000,
+              "step_delta": 65000
+            },
+            {
+              "frame_index": 320975,
+              "step_before": 1616140000,
+              "step_after": 1616205000,
+              "step_delta": 65000
+            }
+          ],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_15/rep_005",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12123,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484880,
+          "output_frames": 484880,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 2,
+          "missing_frame_count": 24,
+          "max_missing_in_one_gap": 19,
+          "forward_gap_examples": [
+            {
+              "frame_index": 155594,
+              "step_before": 789175000,
+              "step_after": 789205000,
+              "step_delta": 30000
+            },
+            {
+              "frame_index": 323975,
+              "step_before": 1631105000,
+              "step_after": 1631205000,
+              "step_delta": 100000
+            }
+          ],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_15/rep_006",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12123,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484903,
+          "output_frames": 484903,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 1,
+          "missing_frame_count": 2,
+          "max_missing_in_one_gap": 2,
+          "forward_gap_examples": [
+            {
+              "frame_index": 322597,
+              "step_before": 1624190000,
+              "step_after": 1624205000,
+              "step_delta": 15000
+            }
+          ],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_15/rep_007",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12123,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484901,
+          "output_frames": 484901,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 2,
+          "missing_frame_count": 19,
+          "max_missing_in_one_gap": 14,
+          "forward_gap_examples": [
+            {
+              "frame_index": 152394,
+              "step_before": 773175000,
+              "step_after": 773205000,
+              "step_delta": 30000
+            },
+            {
+              "frame_index": 324380,
+              "step_before": 1633130000,
+              "step_after": 1633205000,
+              "step_delta": 75000
+            }
+          ],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_15/rep_008",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12123,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484895,
+          "output_frames": 484895,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 2,
+          "missing_frame_count": 15,
+          "max_missing_in_one_gap": 11,
+          "forward_gap_examples": [
+            {
+              "frame_index": 153195,
+              "step_before": 777180000,
+              "step_after": 777205000,
+              "step_delta": 25000
+            },
+            {
+              "frame_index": 321984,
+              "step_before": 1621145000,
+              "step_after": 1621205000,
+              "step_delta": 60000
+            }
+          ],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_15/rep_009",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12123,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484883,
+          "output_frames": 484883,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 2,
+          "missing_frame_count": 34,
+          "max_missing_in_one_gap": 18,
+          "forward_gap_examples": [
+            {
+              "frame_index": 155381,
+              "step_before": 788110000,
+              "step_after": 788205000,
+              "step_delta": 95000
+            },
+            {
+              "frame_index": 324365,
+              "step_before": 1633120000,
+              "step_after": 1633205000,
+              "step_delta": 85000
+            }
+          ],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_15/rep_010",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12123,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484902,
+          "output_frames": 484902,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 2,
+          "missing_frame_count": 12,
+          "max_missing_in_one_gap": 10,
+          "forward_gap_examples": [
+            {
+              "frame_index": 153989,
+              "step_before": 781150000,
+              "step_after": 781205000,
+              "step_delta": 55000
+            },
+            {
+              "frame_index": 323587,
+              "step_before": 1629190000,
+              "step_after": 1629205000,
+              "step_delta": 15000
+            }
+          ],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_18/rep_001",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12123,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484895,
+          "output_frames": 484895,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 2,
+          "missing_frame_count": 22,
+          "max_missing_in_one_gap": 13,
+          "forward_gap_examples": [
+            {
+              "frame_index": 154790,
+              "step_before": 785155000,
+              "step_after": 785205000,
+              "step_delta": 50000
+            },
+            {
+              "frame_index": 323777,
+              "step_before": 1630135000,
+              "step_after": 1630205000,
+              "step_delta": 70000
+            }
+          ],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_18/rep_002",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12123,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484901,
+          "output_frames": 484901,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 2,
+          "missing_frame_count": 19,
+          "max_missing_in_one_gap": 11,
+          "forward_gap_examples": [
+            {
+              "frame_index": 155991,
+              "step_before": 791160000,
+              "step_after": 791205000,
+              "step_delta": 45000
+            },
+            {
+              "frame_index": 325180,
+              "step_before": 1637145000,
+              "step_after": 1637205000,
+              "step_delta": 60000
+            }
+          ],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_18/rep_003",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12123,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484877,
+          "output_frames": 484877,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 2,
+          "missing_frame_count": 27,
+          "max_missing_in_one_gap": 15,
+          "forward_gap_examples": [
+            {
+              "frame_index": 155387,
+              "step_before": 788140000,
+              "step_after": 788205000,
+              "step_delta": 65000
+            },
+            {
+              "frame_index": 328372,
+              "step_before": 1653125000,
+              "step_after": 1653205000,
+              "step_delta": 80000
+            }
+          ],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_18/rep_004",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12123,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484900,
+          "output_frames": 484900,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 2,
+          "missing_frame_count": 16,
+          "max_missing_in_one_gap": 9,
+          "forward_gap_examples": [
+            {
+              "frame_index": 152792,
+              "step_before": 775165000,
+              "step_after": 775205000,
+              "step_delta": 40000
+            },
+            {
+              "frame_index": 326183,
+              "step_before": 1642155000,
+              "step_after": 1642205000,
+              "step_delta": 50000
+            }
+          ],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_18/rep_005",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12123,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484878,
+          "output_frames": 484878,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 2,
+          "missing_frame_count": 32,
+          "max_missing_in_one_gap": 20,
+          "forward_gap_examples": [
+            {
+              "frame_index": 152787,
+              "step_before": 775140000,
+              "step_after": 775205000,
+              "step_delta": 65000
+            },
+            {
+              "frame_index": 325767,
+              "step_before": 1640100000,
+              "step_after": 1640205000,
+              "step_delta": 105000
+            }
+          ],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_18/rep_006",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12123,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484903,
+          "output_frames": 484903,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 2,
+          "missing_frame_count": 5,
+          "max_missing_in_one_gap": 3,
+          "forward_gap_examples": [
+            {
+              "frame_index": 153197,
+              "step_before": 777190000,
+              "step_after": 777205000,
+              "step_delta": 15000
+            },
+            {
+              "frame_index": 324794,
+              "step_before": 1635185000,
+              "step_after": 1635205000,
+              "step_delta": 20000
+            }
+          ],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_18/rep_007",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12123,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484889,
+          "output_frames": 484889,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 2,
+          "missing_frame_count": 25,
+          "max_missing_in_one_gap": 18,
+          "forward_gap_examples": [
+            {
+              "frame_index": 151992,
+              "step_before": 771165000,
+              "step_after": 771205000,
+              "step_delta": 40000
+            },
+            {
+              "frame_index": 324374,
+              "step_before": 1633110000,
+              "step_after": 1633205000,
+              "step_delta": 95000
+            }
+          ],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_18/rep_008",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12123,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484908,
+          "output_frames": 484908,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 1,
+          "missing_frame_count": 2,
+          "max_missing_in_one_gap": 2,
+          "forward_gap_examples": [
+            {
+              "frame_index": 152397,
+              "step_before": 773190000,
+              "step_after": 773205000,
+              "step_delta": 15000
+            }
+          ],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_18/rep_009",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12123,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484890,
+          "output_frames": 484890,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 2,
+          "missing_frame_count": 21,
+          "max_missing_in_one_gap": 11,
+          "forward_gap_examples": [
+            {
+              "frame_index": 154989,
+              "step_before": 786150000,
+              "step_after": 786205000,
+              "step_delta": 55000
+            },
+            {
+              "frame_index": 327578,
+              "step_before": 1649145000,
+              "step_after": 1649205000,
+              "step_delta": 60000
+            }
+          ],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_18/rep_010",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12123,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484883,
+          "output_frames": 484883,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 2,
+          "missing_frame_count": 24,
+          "max_missing_in_one_gap": 17,
+          "forward_gap_examples": [
+            {
+              "frame_index": 158192,
+              "step_before": 802165000,
+              "step_after": 802205000,
+              "step_delta": 40000
+            },
+            {
+              "frame_index": 328175,
+              "step_before": 1652115000,
+              "step_after": 1652205000,
+              "step_delta": 90000
+            }
+          ],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_6/rep_001",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12123,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484906,
+          "output_frames": 484901,
+          "dropped_overlap_frames": 5,
+          "forward_gap_count": 1,
+          "missing_frame_count": 19,
+          "max_missing_in_one_gap": 19,
+          "forward_gap_examples": [
+            {
+              "frame_index": 254980,
+              "step_before": 1286105000,
+              "step_after": 1286205000,
+              "step_delta": 100000
+            }
+          ],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_6/rep_002",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12123,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484876,
+          "output_frames": 484876,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 2,
+          "missing_frame_count": 26,
+          "max_missing_in_one_gap": 13,
+          "forward_gap_examples": [
+            {
+              "frame_index": 157586,
+              "step_before": 799135000,
+              "step_after": 799205000,
+              "step_delta": 70000
+            },
+            {
+              "frame_index": 329173,
+              "step_before": 1657135000,
+              "step_after": 1657205000,
+              "step_delta": 70000
+            }
+          ],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_6/rep_003",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12123,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484879,
+          "output_frames": 484879,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 2,
+          "missing_frame_count": 26,
+          "max_missing_in_one_gap": 14,
+          "forward_gap_examples": [
+            {
+              "frame_index": 158587,
+              "step_before": 804140000,
+              "step_after": 804205000,
+              "step_delta": 65000
+            },
+            {
+              "frame_index": 329573,
+              "step_before": 1659130000,
+              "step_after": 1659205000,
+              "step_delta": 75000
+            }
+          ],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_6/rep_004",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12123,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484873,
+          "output_frames": 484873,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 2,
+          "missing_frame_count": 38,
+          "max_missing_in_one_gap": 20,
+          "forward_gap_examples": [
+            {
+              "frame_index": 159581,
+              "step_before": 809110000,
+              "step_after": 809205000,
+              "step_delta": 95000
+            },
+            {
+              "frame_index": 333561,
+              "step_before": 1679100000,
+              "step_after": 1679205000,
+              "step_delta": 105000
+            }
+          ],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_6/rep_005",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12123,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484903,
+          "output_frames": 484903,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 2,
+          "missing_frame_count": 10,
+          "max_missing_in_one_gap": 6,
+          "forward_gap_examples": [
+            {
+              "frame_index": 156195,
+              "step_before": 792180000,
+              "step_after": 792205000,
+              "step_delta": 25000
+            },
+            {
+              "frame_index": 331789,
+              "step_before": 1670170000,
+              "step_after": 1670205000,
+              "step_delta": 35000
+            }
+          ],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_6/rep_006",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12123,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484901,
+          "output_frames": 484901,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 2,
+          "missing_frame_count": 19,
+          "max_missing_in_one_gap": 17,
+          "forward_gap_examples": [
+            {
+              "frame_index": 155797,
+              "step_before": 790190000,
+              "step_after": 790205000,
+              "step_delta": 15000
+            },
+            {
+              "frame_index": 326180,
+              "step_before": 1642115000,
+              "step_after": 1642205000,
+              "step_delta": 90000
+            }
+          ],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_6/rep_007",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12123,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484895,
+          "output_frames": 484895,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 2,
+          "missing_frame_count": 15,
+          "max_missing_in_one_gap": 11,
+          "forward_gap_examples": [
+            {
+              "frame_index": 154995,
+              "step_before": 786180000,
+              "step_after": 786205000,
+              "step_delta": 25000
+            },
+            {
+              "frame_index": 331984,
+              "step_before": 1671145000,
+              "step_after": 1671205000,
+              "step_delta": 60000
+            }
+          ],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_6/rep_008",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12123,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484901,
+          "output_frames": 484901,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 1,
+          "missing_frame_count": 1,
+          "max_missing_in_one_gap": 1,
+          "forward_gap_examples": [
+            {
+              "frame_index": 158998,
+              "step_before": 806195000,
+              "step_after": 806205000,
+              "step_delta": 10000
+            }
+          ],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_6/rep_009",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12123,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484896,
+          "output_frames": 484896,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 2,
+          "missing_frame_count": 14,
+          "max_missing_in_one_gap": 9,
+          "forward_gap_examples": [
+            {
+              "frame_index": 156390,
+              "step_before": 793155000,
+              "step_after": 793205000,
+              "step_delta": 50000
+            },
+            {
+              "frame_index": 328985,
+              "step_before": 1656175000,
+              "step_after": 1656205000,
+              "step_delta": 30000
+            }
+          ],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    },
+    {
+      "relative_dir": "eps_6/rep_010",
+      "included": true,
+      "reason": "cleaned trajectory.gsd, virial_tensor_log.gsd with forward_gap_policy=segment",
+      "files": [
+        {
+          "filename": "trajectory.gsd",
+          "expected_step_delta": 200000,
+          "output_step_delta": 200000,
+          "input_frames": 12123,
+          "output_frames": 12123,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 0,
+          "missing_frame_count": 0,
+          "max_missing_in_one_gap": 0,
+          "forward_gap_examples": [],
+          "downsample_factor": null,
+          "downsample_phase": null
+        },
+        {
+          "filename": "virial_tensor_log.gsd",
+          "expected_step_delta": 5000,
+          "output_step_delta": 5000,
+          "input_frames": 484878,
+          "output_frames": 484878,
+          "dropped_overlap_frames": 0,
+          "forward_gap_count": 2,
+          "missing_frame_count": 23,
+          "max_missing_in_one_gap": 12,
+          "forward_gap_examples": [
+            {
+              "frame_index": 154787,
+              "step_before": 785140000,
+              "step_after": 785205000,
+              "step_delta": 65000
+            },
+            {
+              "frame_index": 326376,
+              "step_before": 1643145000,
+              "step_after": 1643205000,
+              "step_delta": 60000
+            }
+          ],
+          "downsample_factor": null,
+          "downsample_phase": null
+        }
+      ]
+    }
+  ]
+}

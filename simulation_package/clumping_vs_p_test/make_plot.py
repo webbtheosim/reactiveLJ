@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create the clump-fraction violin plot for the small-system p sweep."""
+"""Create clump, paired, and excess-coordination violin plots for the p sweep."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 
-FIGSIZE = (3.3, 3.3)
+FIGSIZE = (3.3 / 2.0, 3.3 / 2.0)
 DPI = 1000
 LABEL_FONTSIZE = 10
 TICK_FONTSIZE = 8
@@ -48,16 +48,41 @@ def parse_args() -> argparse.Namespace:
         help="Root directory containing p_*/rep_*/trajectory.gsd outputs.",
     )
     parser.add_argument(
-        "--output",
+        "--clump-output",
         type=Path,
         default=script_dir / "results" / "clump_fraction_violin.svg",
-        help="Output SVG path.",
+        help="Output SVG path for the clump-fraction violin plot.",
+    )
+    parser.add_argument(
+        "--paired-output",
+        type=Path,
+        default=script_dir / "results" / "paired_fraction_violin.svg",
+        help="Output SVG path for the paired-fraction violin plot.",
+    )
+    parser.add_argument(
+        "--excess-coordination-output",
+        type=Path,
+        default=script_dir / "results" / "excess_coordination_violin.svg",
+        help="Output SVG path for the excess-coordination violin plot.",
     )
     parser.add_argument(
         "--n-jobs",
         type=int,
         default=0,
         help="Parallel jobs over trajectories (0 uses SLURM_CPUS_PER_TASK or 1).",
+    )
+    parser.add_argument(
+        "--p-values",
+        nargs="*",
+        type=int,
+        default=None,
+        help="Optional subset of p values to include, for example: --p-values 2 4 8.",
+    )
+    parser.add_argument(
+        "--only",
+        choices=("all", "clump", "paired", "excess-coordination"),
+        default="all",
+        help="Optional plot selection. Default writes all plots.",
     )
     return parser.parse_args()
 
@@ -92,7 +117,10 @@ def infer_p_value(run_dir: Path, metadata: dict | None) -> int:
     raise ValueError(f"Could not infer p value for run directory {run_dir}")
 
 
-def discover_runs(input_root: Path) -> list[tuple[int, Path, dict | None]]:
+def discover_runs(
+    input_root: Path,
+    selected_p_values: set[int] | None = None,
+) -> list[tuple[int, Path, dict | None]]:
     runs: list[tuple[int, Path, dict | None]] = []
     for trajectory_path in sorted(input_root.rglob("trajectory.gsd")):
         run_dir = trajectory_path.parent
@@ -102,67 +130,100 @@ def discover_runs(input_root: Path) -> list[tuple[int, Path, dict | None]]:
             with open(metadata_path, "r", encoding="utf-8") as handle:
                 metadata = json.load(handle)
         p_value = infer_p_value(run_dir, metadata)
+        if selected_p_values is not None and p_value not in selected_p_values:
+            continue
         runs.append((p_value, trajectory_path, metadata))
     if not runs:
         raise FileNotFoundError(f"No trajectory.gsd files found under {input_root}")
+    if selected_p_values is not None:
+        discovered_p_values = {p_value for p_value, _, _ in runs}
+        missing_p_values = sorted(selected_p_values - discovered_p_values)
+        if missing_p_values:
+            raise FileNotFoundError(
+                "No trajectory.gsd files found for p value(s): "
+                + ", ".join(str(value) for value in missing_p_values)
+            )
     return sorted(runs, key=lambda item: (item[0], str(item[1])))
 
 
-def compute_frame_clump_fraction(
+def compute_frame_metrics(
     positions: np.ndarray,
     box_length: float,
     cutoff_sq: float,
-) -> float:
+) -> tuple[float, float, float]:
     n_stickers = int(positions.shape[0])
     if n_stickers == 0:
-        raise ValueError("Cannot compute clump fraction for a frame with zero stickers.")
+        raise ValueError("Cannot compute frame metrics for a frame with zero stickers.")
     if n_stickers == 1:
-        return 0.0
+        return 0.0, 0.0, 0.0
 
     delta = positions[:, None, :] - positions[None, :, :]
     delta -= box_length * np.rint(delta / box_length)
     dist_sq = np.einsum("ijk,ijk->ij", delta, delta, optimize=True)
     bonded = (dist_sq <= cutoff_sq) & (dist_sq > 0.0)
-    multi_bonded = bonded.sum(axis=1) >= 2
+    bond_count = bonded.sum(axis=1)
+    multi_bonded = bond_count >= 2
+    isolated_dimer_members = np.zeros(n_stickers, dtype=bool)
+    singly_bonded = bond_count == 1
+    if np.any(singly_bonded):
+        singly_indices = np.flatnonzero(singly_bonded)
+        neighbor_indices = np.argmax(bonded[singly_indices], axis=1)
+        isolated_mask = bond_count[neighbor_indices] == 1
+        isolated_dimer_members[singly_indices] = isolated_mask
     if np.any(multi_bonded):
         clumped = multi_bonded | bonded[:, multi_bonded].any(axis=1)
     else:
         clumped = multi_bonded
-    return float(np.count_nonzero(clumped) / n_stickers)
+    excess_coordination = np.maximum(bond_count - 1, 0).sum(dtype=np.int64) / n_stickers
+    return (
+        float(np.count_nonzero(clumped) / n_stickers),
+        float(np.count_nonzero(isolated_dimer_members) / n_stickers),
+        float(excess_coordination),
+    )
 
 
 def analyze_trajectory(
     p_value: int,
     trajectory_path: Path,
     metadata: dict | None,
-) -> tuple[int, np.ndarray]:
+) -> tuple[int, np.ndarray, np.ndarray, np.ndarray]:
     sigma = 1.0
     if metadata is not None and metadata.get("reactive_sigma") is not None:
         sigma = float(metadata["reactive_sigma"])
     cutoff = lj_inflection_cutoff(sigma)
     cutoff_sq = cutoff * cutoff
 
-    fractions: list[float] = []
+    clump_fractions: list[float] = []
+    paired_fractions: list[float] = []
+    excess_coordination_values: list[float] = []
     with gsd.hoomd.open(str(trajectory_path), "r") as trajectory:
         for frame in trajectory:
             positions = np.asarray(frame.particles.position, dtype=np.float64)
             box_length = float(frame.configuration.box[0])
-            fractions.append(
-                compute_frame_clump_fraction(
-                    positions=positions,
-                    box_length=box_length,
-                    cutoff_sq=cutoff_sq,
-                )
+            clump_fraction, paired_fraction, excess_coordination = compute_frame_metrics(
+                positions=positions,
+                box_length=box_length,
+                cutoff_sq=cutoff_sq,
             )
+            clump_fractions.append(clump_fraction)
+            paired_fractions.append(paired_fraction)
+            excess_coordination_values.append(excess_coordination)
 
-    if not fractions:
+    if not clump_fractions:
         raise RuntimeError(f"Trajectory contains no frames: {trajectory_path}")
-    return p_value, np.asarray(fractions, dtype=np.float64)
+    return (
+        p_value,
+        np.asarray(clump_fractions, dtype=np.float64),
+        np.asarray(paired_fractions, dtype=np.float64),
+        np.asarray(excess_coordination_values, dtype=np.float64),
+    )
 
 
 def make_violin_plot(
     grouped_data: list[tuple[int, np.ndarray]],
     output_path: Path,
+    y_label: str,
+    y_limits: tuple[float, float] | None = None,
 ) -> None:
     positions = [item[0] for item in grouped_data]
     datasets = [item[1] for item in grouped_data]
@@ -184,10 +245,11 @@ def make_violin_plot(
         body.set_alpha(1.0)
 
     ax.set_xlabel(r"$p$", fontsize=LABEL_FONTSIZE)
-    ax.set_ylabel("Clump fraction", fontsize=LABEL_FONTSIZE)
+    ax.set_ylabel(y_label, fontsize=LABEL_FONTSIZE)
     ax.set_xticks(positions)
     ax.set_xticklabels([str(value) for value in positions])
-    ax.set_ylim(0.0, 1.0)
+    if y_limits is not None:
+        ax.set_ylim(*y_limits)
     ax.tick_params(axis="both", which="both", labelsize=TICK_FONTSIZE, colors=OUTLINE_COLOR)
     for spine in ax.spines.values():
         spine.set_color(OUTLINE_COLOR)
@@ -201,7 +263,8 @@ def make_violin_plot(
 
 def main() -> None:
     args = parse_args()
-    runs = discover_runs(args.input_root)
+    selected_p_values = None if args.p_values is None else set(args.p_values)
+    runs = discover_runs(args.input_root, selected_p_values=selected_p_values)
     n_jobs = min(resolve_n_jobs(args.n_jobs), len(runs))
 
     analyzed = Parallel(n_jobs=n_jobs)(
@@ -209,24 +272,79 @@ def main() -> None:
         for p_value, trajectory_path, metadata in runs
     )
 
-    grouped: dict[int, list[np.ndarray]] = {}
-    for p_value, fractions in analyzed:
-        grouped.setdefault(p_value, []).append(fractions)
-
-    grouped_data = [
-        (p_value, np.concatenate(grouped[p_value]))
-        for p_value in sorted(grouped)
-    ]
-
-    for p_value, fractions in grouped_data:
-        print(
-            f"p={p_value} frames={fractions.size} "
-            f"mean_clump_fraction={np.mean(fractions):.6f}",
-            flush=True,
+    clump_grouped: dict[int, list[np.ndarray]] = {}
+    paired_grouped: dict[int, list[np.ndarray]] = {}
+    excess_coordination_grouped: dict[int, list[np.ndarray]] = {}
+    for (
+        p_value,
+        clump_fractions,
+        paired_fractions,
+        excess_coordination_values,
+    ) in analyzed:
+        clump_grouped.setdefault(p_value, []).append(clump_fractions)
+        paired_grouped.setdefault(p_value, []).append(paired_fractions)
+        excess_coordination_grouped.setdefault(p_value, []).append(
+            excess_coordination_values
         )
 
-    make_violin_plot(grouped_data, args.output)
-    print(f"Wrote clump-fraction plot to {args.output}", flush=True)
+    clump_grouped_data = [
+        (p_value, np.concatenate(clump_grouped[p_value]))
+        for p_value in sorted(clump_grouped)
+    ]
+    paired_grouped_data = [
+        (p_value, np.concatenate(paired_grouped[p_value]))
+        for p_value in sorted(paired_grouped)
+    ]
+    excess_coordination_grouped_data = [
+        (p_value, np.concatenate(excess_coordination_grouped[p_value]))
+        for p_value in sorted(excess_coordination_grouped)
+    ]
+
+    if args.only in {"all", "clump"}:
+        for p_value, fractions in clump_grouped_data:
+            print(
+                f"p={p_value} frames={fractions.size} "
+                f"mean_clump_fraction={np.mean(fractions):.6f}",
+                flush=True,
+            )
+        make_violin_plot(
+            clump_grouped_data,
+            args.clump_output,
+            y_label="Clump fraction",
+            y_limits=(0.0, 1.0),
+        )
+        print(f"Wrote clump-fraction plot to {args.clump_output}", flush=True)
+
+    if args.only in {"all", "paired"}:
+        for p_value, fractions in paired_grouped_data:
+            print(
+                f"p={p_value} frames={fractions.size} "
+                f"mean_paired_fraction={np.mean(fractions):.6f}",
+                flush=True,
+            )
+        make_violin_plot(
+            paired_grouped_data,
+            args.paired_output,
+            y_label="Paired fraction",
+        )
+        print(f"Wrote paired-fraction plot to {args.paired_output}", flush=True)
+
+    if args.only in {"all", "excess-coordination"}:
+        for p_value, values in excess_coordination_grouped_data:
+            print(
+                f"p={p_value} frames={values.size} "
+                f"mean_excess_coordination={np.mean(values):.6f}",
+                flush=True,
+            )
+        make_violin_plot(
+            excess_coordination_grouped_data,
+            args.excess_coordination_output,
+            y_label="Excess coordination",
+        )
+        print(
+            f"Wrote excess-coordination plot to {args.excess_coordination_output}",
+            flush=True,
+        )
 
 
 if __name__ == "__main__":

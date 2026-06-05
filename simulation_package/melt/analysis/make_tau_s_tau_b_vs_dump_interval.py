@@ -49,7 +49,7 @@ from analysis_utils import (
 )
 
 
-DEFAULT_EPSILONS = (12.0, 15.0, 18.0)
+DEFAULT_EPSILONS = (6.0, 12.0, 15.0, 18.0)
 DEFAULT_BOND_PERSISTENCE_EPSILONS = (3.0, 6.0, 9.0, 12.0, 15.0, 18.0)
 DEFAULT_STRIDES = (1, 2, 3, 4, 6, 8, 12, 16, 20)
 DEFAULT_MAX_LAG_FRAMES = 100
@@ -89,14 +89,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--input-root",
         type=Path,
-        default=script_dir.parent / "data_generation" / "outputs",
+        default=script_dir.parent / "data_generation" / "outputs_clean",
         help="Directory containing eps_*/rep_*/trajectory.gsd and metadata.json.",
     )
     parser.add_argument(
         "--output",
         type=Path,
-        default=script_dir / "tau_s_tau_b_vs_dump_interval.png",
-        help="Output PNG path.",
+        default=script_dir / "tau_s_tau_b_vs_dump_interval.svg",
+        help="Output SVG path.",
     )
     parser.add_argument(
         "--csv-output",

@@ -81,7 +81,7 @@ else
 fi
 
 module load anaconda3/2025.12
-conda activate '/home/mc7345/micromamba/envs/reactiveLJ_paper'
+conda activate '/scratch/gpfs/WEBB/chertok/conda_envs/reactiveLJ_oconnor_tersoff_comparison'
 # Keep conda libs visible to the dynamic loader.
 export LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${CUDA_LIBDIR}:${LD_LIBRARY_PATH:-}"
 

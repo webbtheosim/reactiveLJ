@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fit Tersoff parameters to multi-curve ReactiveLJ targets for selected epsilons."""
+"""Fit Liu/O'Connor Tersoff parameters to ReactiveLJ targets."""
 
 from __future__ import annotations
 
@@ -74,8 +74,8 @@ class FitConfig:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Fit Tersoff parameters to match ReactiveLJ pair curves at fixed "
-            "third-bead distances using Adam with JAX autodiff gradients."
+            "Fit the Liu/O'Connor Tersoff subset to match ReactiveLJ pair curves "
+            "at fixed third-bead distances using Adam with JAX autodiff gradients."
         )
     )
     parser.add_argument(
@@ -179,7 +179,10 @@ def parse_args() -> argparse.Namespace:
         "--surrogate-cos-theta",
         type=float,
         default=0.0,
-        help="Fixed representative cos(theta_ijk) used in the surrogate Tersoff curve model.",
+        help=(
+            "Deprecated and ignored. The Liu/O'Connor Tersoff subset has g(theta)=1 "
+            "and no angular dependence."
+        ),
     )
     parser.add_argument(
         "--output-dir",
@@ -375,15 +378,11 @@ def tersoff_surrogate_curve(
     a2 = params["A2"]
     lam1 = params["lambda1"]
     lam2 = params["lambda2"]
-    lam3 = params["lambda3"]
     dimer_r = params["dimer_r"]
     cutoff_thickness = params["cutoff_thickness"]
     alpha = params["alpha"]
     n = params["n"]
     gamma = params["gamma"]
-    c = params["c"]
-    d = params["d"]
-    m = params["m"]
 
     f_c_ij = tersoff_cutoff(r, r_cut=r_cut, cutoff_thickness=cutoff_thickness, alpha=alpha)
     f_r = a1 * _safe_exp(lam1 * (dimer_r - r))
@@ -392,23 +391,18 @@ def tersoff_surrogate_curve(
     rik = np.full_like(r, rik_distance)
     f_c_ik = tersoff_cutoff(rik, r_cut=r_cut, cutoff_thickness=cutoff_thickness, alpha=alpha)
 
-    # Match HOOMD evaluator: h = exp(lambda3^3 * (r_ij - r_ik)^3).
-    delta_r = r - rik_distance
-    h = _safe_exp((lam3**3) * (delta_r**3))
-
-    c2 = c * c
-    d2 = d * d
-    ang_diff = m - surrogate_cos_theta
-    g = 1.0 + c2 / d2 - c2 / (d2 + ang_diff * ang_diff)
-
-    chi = np.clip(f_c_ik * h * g, 1e-14, None)
-
+    # Match LiuOConnorTersoffForceCompute: for one third bead, the directed
+    # bond-order coordination excluding the ij pair is zeta_ij = f_C(r_ik).
+    # The Liu/O'Connor subset has lambda3=0 and g(theta)=1.
+    del surrogate_cos_theta
+    zeta = np.maximum(f_c_ik, 0.0)
     n_eff = max(n, 1e-6)
     gamma_n = gamma**n_eff
-    chi_n = chi**n_eff
-    bij = np.power(1.0 + gamma_n * chi_n, -0.5 / n_eff)
+    zeta_n = np.power(np.where(zeta > 0.0, zeta, 1.0), n_eff)
+    bij_raw = np.power(1.0 + gamma_n * zeta_n, -0.5 / n_eff)
+    bij = np.where(zeta > 0.0, bij_raw, 1.0)
 
-    # Match HOOMD evaluator: U_ij = 0.5 * f_c * (f_R - b_ij * f_A).
+    # Match LiuOConnorTersoffForceCompute's directed energy.
     return 0.5 * f_c_ij * (f_r - bij * f_a)
 
 
@@ -450,16 +444,16 @@ def build_bounds(
             500.0,          # A2 (positive, HOOMD uses f_R - b_ij f_A)
             30.0,           # lambda1
             30.0,           # lambda2
-            4.0,            # lambda3
+            0.0,            # lambda3 (fixed: Liu/O'Connor subset)
             1.5 * sigma,    # dimer_r
             cutoff_thickness,  # cutoff_thickness (fixed)
             reactive_r_cut,    # r_cut (fixed)
             -3.0,           # alpha (fixed)
             8.0,            # n
             50.0,           # gamma
-            0.0,            # c (fixed)
-            1.0,            # d (fixed)
-            0.0,            # m (fixed)
+            0.0,            # c (fixed: g(theta)=1)
+            1.0,            # d (fixed and unused)
+            0.0,            # m (fixed and unused)
         ],
         dtype=np.float64,
     )
@@ -514,16 +508,12 @@ def tersoff_surrogate_curve_jax(r, vec, rik_distance, surrogate_cos_theta):
     a2 = vec[PARAM_INDEX["A2"]]
     lam1 = vec[PARAM_INDEX["lambda1"]]
     lam2 = vec[PARAM_INDEX["lambda2"]]
-    lam3 = vec[PARAM_INDEX["lambda3"]]
     dimer_r = vec[PARAM_INDEX["dimer_r"]]
     cutoff_thickness = vec[PARAM_INDEX["cutoff_thickness"]]
     r_cut = vec[PARAM_INDEX["r_cut"]]
     alpha = vec[PARAM_INDEX["alpha"]]
     n = vec[PARAM_INDEX["n"]]
     gamma = vec[PARAM_INDEX["gamma"]]
-    c = vec[PARAM_INDEX["c"]]
-    d = vec[PARAM_INDEX["d"]]
-    m = vec[PARAM_INDEX["m"]]
 
     f_c_ij = tersoff_cutoff_jax(r, r_cut=r_cut, cutoff_thickness=cutoff_thickness, alpha=alpha)
     f_r = a1 * _safe_exp_jax(lam1 * (dimer_r - r))
@@ -532,19 +522,14 @@ def tersoff_surrogate_curve_jax(r, vec, rik_distance, surrogate_cos_theta):
     rik = jnp.full_like(r, rik_distance)
     f_c_ik = tersoff_cutoff_jax(rik, r_cut=r_cut, cutoff_thickness=cutoff_thickness, alpha=alpha)
 
-    delta_r = r - rik_distance
-    h = _safe_exp_jax((lam3**3) * (delta_r**3))
-
-    c2 = c * c
-    d2 = d * d
-    ang_diff = m - surrogate_cos_theta
-    g = 1.0 + c2 / d2 - c2 / (d2 + ang_diff * ang_diff)
-
-    chi = jnp.clip(f_c_ik * h * g, 1e-14, None)
+    del surrogate_cos_theta
+    zeta = jnp.maximum(f_c_ik, 0.0)
     n_eff = jnp.maximum(n, 1e-6)
     gamma_n = gamma**n_eff
-    chi_n = chi**n_eff
-    bij = jnp.power(1.0 + gamma_n * chi_n, -0.5 / n_eff)
+    zeta_safe = jnp.where(zeta > 0.0, zeta, 1.0)
+    zeta_n = jnp.power(zeta_safe, n_eff)
+    bij_raw = jnp.power(1.0 + gamma_n * zeta_n, -0.5 / n_eff)
+    bij = jnp.where(zeta > 0.0, bij_raw, 1.0)
 
     return 0.5 * f_c_ij * (f_r - bij * f_a)
 
@@ -707,7 +692,7 @@ def make_colored_curve_plot(
     sigma: float,
     model_label: str,
 ) -> None:
-    fig, ax = plt.subplots(figsize=(4.0, 3.0), dpi=300)
+    fig, ax = plt.subplots(figsize=(4.0, 1.5), dpi=300)
     plot_r_min = 0.95 * sigma
     plot_r_max = 1.5 * sigma
     plot_mask = (r >= plot_r_min) & (r <= plot_r_max)
@@ -731,16 +716,13 @@ def make_colored_curve_plot(
 
     ax.set_xlabel("r")
     ax.set_ylabel("U(r)")
-    ax.set_title(
-        f"{model_label} curves (eps={epsilon:g})"
-    )
     ax.set_ylim(-14.0, 14.0)
     ax.grid(alpha=0.25, linewidth=0.5)
 
     sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
     sm.set_array([])
     cbar = fig.colorbar(sm, ax=ax)
-    cbar.set_label("Third-bead distance (r3 / sigma)")
+    cbar.set_label(r"$\frac{r_3}{\sigma}$")
 
     fig.tight_layout()
     fig.savefig(path)
@@ -849,7 +831,7 @@ def main() -> None:
             third_distances=third_distances,
         )
         reactive_plot_path = os.path.join(
-            plot_dir, f"reactive_lj_curves_eps_{epsilon:g}.png"
+            plot_dir, f"reactive_lj_curves_eps_{epsilon:g}.svg"
         )
         make_colored_curve_plot(
             path=reactive_plot_path,
@@ -929,7 +911,7 @@ def main() -> None:
         write_curve_csv(curve_csv, r_grid, third_distances, target_curves, best_curve)
 
         tersoff_plot_path = os.path.join(
-            plot_dir, f"tersoff_curves_eps_{epsilon:g}.png"
+            plot_dir, f"tersoff_curves_eps_{epsilon:g}.svg"
         )
         make_colored_curve_plot(
             path=tersoff_plot_path,
@@ -938,7 +920,7 @@ def main() -> None:
             third_distances=third_distances,
             curves=best_curve,
             sigma=cfg.sigma,
-            model_label="Tersoff fit",
+            model_label="Liu/O'Connor Tersoff fit",
         )
 
         print(

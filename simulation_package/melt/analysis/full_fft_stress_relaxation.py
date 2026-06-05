@@ -104,6 +104,29 @@ def parse_args() -> argparse.Namespace:
         help="Root directory containing eps_*/rep_*/virial_tensor_log.gsd files.",
     )
     parser.add_argument(
+        "--extension-input-root",
+        type=Path,
+        default=melt_dir / "data_generation" / "outputs_virial_extended",
+        help=(
+            "Optional mirrored root containing short dense virial extensions. "
+            "When present, these curves are stitched into the short-time region."
+        ),
+    )
+    parser.add_argument(
+        "--no-extension-input",
+        action="store_true",
+        help="Ignore --extension-input-root and analyze only --input-root.",
+    )
+    parser.add_argument(
+        "--extension-stitch-time",
+        type=float,
+        default=FALLBACK_TAU_R0,
+        help=(
+            "Lag time in tau_LJ at which to switch from dense extension curves "
+            "to the original long production curves. Default: 1 tau_R^0."
+        ),
+    )
+    parser.add_argument(
         "--output-dir",
         type=Path,
         default=script_dir / "results" / "full_fft_stress_relaxation",
@@ -757,6 +780,53 @@ def aggregate_replicates(results: List[ReplicateResult]) -> Dict[ConditionKey, A
     }
 
 
+def stitch_extension_aggregates(
+    base_aggregated: Dict[ConditionKey, AggregateResult],
+    extension_aggregated: Dict[ConditionKey, AggregateResult],
+    stitch_time: float,
+) -> Dict[ConditionKey, AggregateResult]:
+    """Use dense extension data up to stitch_time and base data afterward."""
+    if stitch_time <= 0.0:
+        raise RuntimeError("--extension-stitch-time must be positive.")
+
+    stitched: Dict[ConditionKey, AggregateResult] = {}
+    for condition, base in sorted(base_aggregated.items()):
+        extension = extension_aggregated.get(condition)
+        if extension is None or extension.time.size == 0:
+            stitched[condition] = base
+            continue
+
+        extension_mask = extension.time <= float(stitch_time)
+        base_mask = base.time > float(stitch_time)
+        if not np.any(extension_mask):
+            stitched[condition] = base
+            continue
+
+        time = np.concatenate((extension.time[extension_mask], base.time[base_mask]))
+        mean = np.concatenate((extension.mean[extension_mask], base.mean[base_mask]))
+        stderr = np.concatenate(
+            (extension.stderr[extension_mask], base.stderr[base_mask])
+        )
+        weight_sum = np.concatenate(
+            (extension.weight_sum[extension_mask], base.weight_sum[base_mask])
+        )
+        n_replicates = np.concatenate(
+            (extension.n_replicates[extension_mask], base.n_replicates[base_mask])
+        )
+        stitched[condition] = AggregateResult(
+            epsilon=condition[0],
+            weakening_exponent=condition[1],
+            time=time,
+            values=np.empty((0, time.size), dtype=np.float64),
+            mean=mean,
+            stderr=stderr,
+            weight_sum=weight_sum,
+            n_replicates=n_replicates,
+        )
+
+    return stitched
+
+
 def write_timeseries(path: Path, time: np.ndarray, mean: np.ndarray, stderr: np.ndarray) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     data = np.column_stack((time, mean, stderr))
@@ -1306,25 +1376,27 @@ def main() -> None:
         raise RuntimeError("--plot-linear-lags must be >= 0.")
     if args.plot_bins_per_decade <= 0.0:
         raise RuntimeError("--plot-bins-per-decade must be > 0.")
+    if args.extension_stitch_time <= 0.0:
+        raise RuntimeError("--extension-stitch-time must be > 0.")
 
     selected_conditions = parse_condition_filters(args.conditions)
     selected_weakening_exponents = args.weakening_exponents
     if selected_conditions is None and selected_weakening_exponents is None:
         selected_weakening_exponents = [DEFAULT_WEAKENING_EXPONENT]
 
-    runs = discover_runs(
+    base_runs = discover_runs(
         input_root=args.input_root,
         selected_epsilons=args.epsilons,
         selected_weakening_exponents=selected_weakening_exponents,
         selected_conditions=selected_conditions,
         max_replicates_per_epsilon=args.max_replicates_per_epsilon,
     )
-    if not runs:
+    if not base_runs:
         raise RuntimeError(f"No virial_tensor_log.gsd files found under {args.input_root}")
 
     discovered_conditions = {
         (run.epsilon, run.weakening_exponent)
-        for run in runs
+        for run in base_runs
     }
     if selected_conditions is not None:
         missing_conditions = [
@@ -1343,11 +1415,33 @@ def main() -> None:
             )
             raise RuntimeError(f"No virial logs found for selected condition(s): {formatted}")
 
+    extension_runs: List[RunSpec] = []
+    if not args.no_extension_input:
+        if args.extension_input_root.exists():
+            extension_runs = discover_runs(
+                input_root=args.extension_input_root,
+                selected_epsilons=args.epsilons,
+                selected_weakening_exponents=selected_weakening_exponents,
+                selected_conditions=selected_conditions,
+                max_replicates_per_epsilon=args.max_replicates_per_epsilon,
+            )
+        else:
+            log(f"No extension input root found at {args.extension_input_root}; using base curves only")
+
     n_jobs = resolve_n_jobs(args.n_jobs)
     log(
-        f"Discovered {len(runs)} virial logs across "
+        f"Discovered {len(base_runs)} base virial logs across "
         f"{len(discovered_conditions)} conditions"
     )
+    if extension_runs:
+        extension_conditions = {
+            (run.epsilon, run.weakening_exponent)
+            for run in extension_runs
+        }
+        log(
+            f"Discovered {len(extension_runs)} dense extension virial logs across "
+            f"{len(extension_conditions)} conditions"
+        )
     log(f"Computing full-FFT stress relaxation with n_jobs={n_jobs}")
 
     computed = Parallel(n_jobs=n_jobs, verbose=args.joblib_verbose)(
@@ -1356,14 +1450,44 @@ def main() -> None:
             float(args.stress_max_runtime_fraction),
             float(args.max_lag_time),
         )
-        for run in runs
+        for run in base_runs
     )
-    results = [result for result in computed if result is not None]
-    if not results:
+    base_results = [result for result in computed if result is not None]
+    if not base_results:
         raise RuntimeError("No usable stress-relaxation results were produced.")
 
+    extension_results: List[ReplicateResult] = []
+    if extension_runs:
+        log("Computing full-FFT stress relaxation for dense extension logs")
+        extension_computed = Parallel(n_jobs=n_jobs, verbose=args.joblib_verbose)(
+            delayed(compute_replicate)(
+                run,
+                float(args.stress_max_runtime_fraction),
+                float(args.max_lag_time),
+            )
+            for run in extension_runs
+        )
+        extension_results = [
+            result for result in extension_computed if result is not None
+        ]
+
     log("Aggregating replicate curves by condition")
-    aggregated = aggregate_replicates(results)
+    base_aggregated = aggregate_replicates(base_results)
+    extension_aggregated = (
+        aggregate_replicates(extension_results) if extension_results else {}
+    )
+    if extension_aggregated:
+        log(
+            "Stitching dense extension curves through "
+            f"{float(args.extension_stitch_time) / float(args.tau_r0):.3g} tau_R^0"
+        )
+        aggregated = stitch_extension_aggregates(
+            base_aggregated,
+            extension_aggregated,
+            float(args.extension_stitch_time),
+        )
+    else:
+        aggregated = base_aggregated
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
     condition_values = sorted(aggregated)
@@ -1398,6 +1522,31 @@ def main() -> None:
         )
         write_timeseries(eps_dir / args.csv_name, result.time, result.mean, result.stderr)
         write_count_diagnostics(eps_dir / "stress_modulus_counts.csv", result)
+        if extension_aggregated:
+            base_result = base_aggregated.get(condition)
+            if base_result is not None:
+                write_timeseries(
+                    eps_dir / "stress_modulus_base.csv",
+                    base_result.time,
+                    base_result.mean,
+                    base_result.stderr,
+                )
+                write_count_diagnostics(
+                    eps_dir / "stress_modulus_base_counts.csv",
+                    base_result,
+                )
+            extension_result = extension_aggregated.get(condition)
+            if extension_result is not None:
+                write_timeseries(
+                    eps_dir / "stress_modulus_extension.csv",
+                    extension_result.time,
+                    extension_result.mean,
+                    extension_result.stderr,
+                )
+                write_count_diagnostics(
+                    eps_dir / "stress_modulus_extension_counts.csv",
+                    extension_result,
+                )
         log(
             f"Aggregated eps={epsilon:g}, p={weakening_exponent:g}: "
             f"replicates={int(np.nanmax(result.n_replicates))}, "
@@ -1405,10 +1554,11 @@ def main() -> None:
         )
 
     plot_path = args.output_dir / args.plot_name
+    plot_results = extension_results + base_results if extension_results else base_results
     if args.plot_all_curves:
         write_all_replicate_stress_modulus_plot(
             plot_path,
-            results,
+            plot_results,
             condition_values,
             float(args.tau_r0),
             float(args.min_plot_g),
@@ -1434,7 +1584,7 @@ def main() -> None:
             args.colormap,
             x_limits=x_limits,
         )
-    write_summary(args.output_dir / "summary.json", results, aggregated)
+    write_summary(args.output_dir / "summary.json", plot_results, aggregated)
     log(f"Wrote full-FFT stress relaxation outputs to {args.output_dir}")
     log(f"Wrote plot to {plot_path}")
 

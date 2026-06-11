@@ -47,14 +47,16 @@ cd "${WORK_DIR}"
 log "Step 6/9: Ensuring logs directory exists"
 mkdir -p logs
 
-OUTPUT_DIR="${WORK_DIR}/analysis/results/full_fft_stress_relaxation_eps18_p_sweep"
+OUTPUT_DIR="${WORK_DIR}/analysis/results/full_fft_stress_relaxation_p4_epsilon_sweep"
 log "Step 7/9: Starting full-FFT stress relaxation analysis"
 ANALYSIS_START_TS=$(date +%s)
 python -u "${WORK_DIR}/analysis/full_fft_stress_relaxation.py" \
     --input-root "${WORK_DIR}/data_generation/outputs_clean" \
+    --extension-input-root "${WORK_DIR}/data_generation/outputs_virial_extended" \
     --output-dir "${OUTPUT_DIR}" \
     --n-jobs "${SLURM_CPUS_PER_TASK:-1}" \
-    --conditions 18:2 18:4 18:8
+    --extension-stitch-time 25 \
+    --weakening-exponents 4
 
 ANALYSIS_END_TS=$(date +%s)
 log "Step 8/9: Analysis finished in $((ANALYSIS_END_TS - ANALYSIS_START_TS)) seconds"

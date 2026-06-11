@@ -13,12 +13,9 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from typing import Any
 
-import matplotlib
 import numpy as np
 
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-from matplotlib.patches import Patch
+import ultraplot as uplt
 
 
 EPSILONS_DEFAULT = (6.0, 12.0, 15.0, 18.0)
@@ -362,7 +359,7 @@ def _group_values(
 
 
 def _plot_metric(
-    ax: plt.Axes,
+    ax: Any,
     samples: list[AccountingSample],
     epsilons: list[float],
     field: str,
@@ -406,7 +403,20 @@ def _plot_metric(
     ax.tick_params(axis="y", labelsize=8)
     ax.set_xlabel(r"ReactiveLJ $\varepsilon$", fontsize=10)
     ax.set_ylabel(ylabel, fontsize=10)
-    ax.grid(axis="y", alpha=0.25, linewidth=0.4)
+    ax.format(
+        xspineloc="both",
+        yspineloc="both",
+        xtickloc="both",
+        ytickloc="both",
+        tickdir="in",
+        grid=False,
+    )
+    ax.tick_params(axis="both", labelsize=8)
+    ax.xaxis.label.set_size(10)
+    ax.yaxis.label.set_size(10)
+    ax.yaxis.label.set_rotation(90)
+    ax.yaxis.label.set_horizontalalignment("center")
+    ax.yaxis.label.set_verticalalignment("bottom")
 
 
 def plot_samples(
@@ -416,7 +426,7 @@ def plot_samples(
     gpu_label: str | None,
 ) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    fig, axes = plt.subplots(1, 2, figsize=(6.6, 3.3), dpi=600)
+    fig, axes = uplt.subplots(nrows=1, ncols=2, figsize=(6.6, 2.0), dpi=600)
 
     _plot_metric(
         axes[0],
@@ -439,22 +449,18 @@ def plot_samples(
         gpu_title = f"{gpu_title} ({gpu_label})"
     axes[1].set_title(gpu_title, fontsize=12)
 
-    legend_handles = [
-        Patch(facecolor="#e77500", edgecolor="#8f4a00", label="ReactiveLJ"),
-        Patch(facecolor="#121212", edgecolor="#121212", label="Tersoff analog"),
-    ]
+    legend_handles, legend_labels = axes[0].get_legend_handles_labels()
     fig.legend(
         handles=legend_handles,
+        labels=legend_labels,
         fontsize=8,
         frameon=True,
-        loc="upper center",
-        ncol=2,
-        bbox_to_anchor=(0.5, 1.02),
+        loc="t",
+        ncols=2,
     )
     fig.suptitle("Resource Usage Comparison", fontsize=12, y=1.12)
-    fig.tight_layout()
     fig.savefig(path, bbox_inches="tight")
-    plt.close(fig)
+    uplt.close(fig)
 
 
 def main() -> None:

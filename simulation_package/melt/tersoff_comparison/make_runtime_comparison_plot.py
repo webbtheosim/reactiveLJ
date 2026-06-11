@@ -11,12 +11,9 @@ import re
 from collections import defaultdict
 from typing import Any
 
-import matplotlib
 import numpy as np
 
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-from matplotlib.patches import Patch
+import ultraplot as uplt
 
 
 EPSILONS_DEFAULT = (6.0, 12.0, 15.0, 18.0)
@@ -258,7 +255,7 @@ def main() -> None:
         for eps in epsilons
     ]
 
-    fig, ax = plt.subplots(figsize=(3.3, 3.3), dpi=600)
+    fig, ax = uplt.subplots(figsize=(3.3, 2.0), dpi=600)
 
     reactive_medians, reactive_errors = _summary_series(reactive_data)
     tersoff_medians, tersoff_errors = _summary_series(tersoff_data)
@@ -300,18 +297,26 @@ def main() -> None:
     }[args.metric]
     ax.set_ylabel(ylabel, fontsize=10)
     ax.set_title("Production Throughput Comparison", fontsize=12)
-    ax.grid(axis="y", alpha=0.25, linewidth=0.4)
+    ax.format(
+        xspineloc="both",
+        yspineloc="both",
+        xtickloc="both",
+        ytickloc="both",
+        tickdir="in",
+        grid=False,
+    )
+    ax.tick_params(axis="both", labelsize=8)
+    ax.xaxis.label.set_size(10)
+    ax.yaxis.label.set_size(10)
+    ax.yaxis.label.set_rotation(90)
+    ax.yaxis.label.set_horizontalalignment("center")
+    ax.yaxis.label.set_verticalalignment("bottom")
 
-    legend_handles = [
-        Patch(facecolor="#e77500", edgecolor="#8f4a00", label="ReactiveLJ"),
-        Patch(facecolor="#121212", edgecolor="#121212", label="Tersoff analog"),
-    ]
-    ax.legend(handles=legend_handles, fontsize=8, frameon=True, loc="best")
+    ax.legend(fontsize=8, frameon=True, loc="best")
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    fig.tight_layout()
     fig.savefig(output_path)
-    plt.close(fig)
+    uplt.close(fig)
 
     reactive_count = sum(len(v) for v in reactive_samples.values())
     tersoff_count = sum(len(v) for v in tersoff_samples.values())

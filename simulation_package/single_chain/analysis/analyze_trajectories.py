@@ -13,6 +13,7 @@ from typing import Dict, List, Tuple
 import gsd.hoomd
 import numpy as np
 from joblib import Parallel, delayed
+import ultraplot as uplt
 
 _CACHE_ROOT = os.path.join("/tmp", f"single-chain-analysis-cache-{os.getuid()}")
 os.environ.setdefault("MPLCONFIGDIR", os.path.join(_CACHE_ROOT, "matplotlib"))
@@ -23,6 +24,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
 
 # Ensure local imports resolve when running from repo root.
 sys.path.append(os.path.dirname(__file__))
@@ -42,6 +44,9 @@ LABEL_FONTSIZE = 10
 LEGEND_FONTSIZE = 8
 EXCHANGE_RATE_PLOT_EXCLUDED_EPSILONS = (0.0, 6.0)
 SWAP_RATE_PLOT_EXCLUDED_EPSILONS = (0.0, 6.0)
+DEFAULT_TAU_R0 = 4041.0
+TAU_S_BAR_PLOT_EXCLUDED_EPSILONS = (0.0, 6.0)
+DOMAIN_MIN_PERSISTENCE_FRAMES = 3
 
 
 def log(message: str) -> None:
@@ -360,77 +365,125 @@ def write_domain_size_distribution_by_epsilon_plot(
     data: List[np.ndarray],
     title: str,
     *,
-    figsize: Tuple[float, float] = (3.3, 2.4),
+    figsize: Tuple[float, float] = (3.3, 1.7548),
     dpi: int = PLOT_DPI,
-    boxplot_outlier_whis: float | None = 1.5,
+    max_domain_size_display: float | None = 100.0,
 ) -> None:
     del title  # Plot titles intentionally omitted for publication styling.
-    processed: List[Tuple[float, np.ndarray]] = []
+    processed: List[Tuple[float, np.ndarray, np.ndarray]] = []
     for eps, values in zip(epsilon_values, data):
-        arr = finite_array(values)
+        arr = np.asarray(values, dtype=np.float64)
+        if arr.ndim == 2 and arr.shape[1] == 2:
+            unique_values = arr[:, 0]
+            probabilities = arr[:, 1]
+            valid = (
+                np.isfinite(unique_values)
+                & np.isfinite(probabilities)
+                & (unique_values >= 0.0)
+                & (probabilities > 0.0)
+            )
+            unique_values = unique_values[valid]
+            probabilities = probabilities[valid]
+            if unique_values.size == 0:
+                continue
+            probabilities = probabilities / np.sum(probabilities)
+            processed.append((float(eps), unique_values, probabilities))
+            continue
+
+        arr = finite_array(arr)
         arr = arr[arr >= 0.0]
         if arr.size == 0:
             continue
-        if boxplot_outlier_whis is not None:
-            q1 = float(np.percentile(arr, 25.0))
-            q3 = float(np.percentile(arr, 75.0))
-            iqr = q3 - q1
-            lower = q1 - boxplot_outlier_whis * iqr
-            upper = q3 + boxplot_outlier_whis * iqr
-            arr = arr[(arr >= lower) & (arr <= upper)]
-            if arr.size == 0:
-                continue
-        processed.append((float(eps), arr))
+        unique_values, counts = np.unique(arr, return_counts=True)
+        probabilities = counts.astype(np.float64) / float(np.sum(counts))
+        processed.append((float(eps), unique_values.astype(np.float64), probabilities))
 
     if not processed:
         return
 
     color_by_epsilon = {
-        0.0: "#ffffff",
-        6.0: "#121212",
-        12.0: "#0021a5",
-        15.0: "#e77500",
-        18.0: "#fa4616",
+        0.0: "#121212",
+        6.0: "#41049d",
+        12.0: "#a62098",
+        15.0: "#e76f5a",
+        18.0: "#fcce25",
     }
     fallback_colors = ["#666666", "#0072B2", "#009E73", "#CC79A7", "#D55E00"]
 
-    unique_spacings = np.diff(
-        np.unique(
-            np.concatenate(
-                [np.unique(values).astype(np.float64) for _, values in processed]
-            )
-        )
-    )
-    positive_spacings = unique_spacings[unique_spacings > 0.0]
-    spacing = float(np.min(positive_spacings)) if positive_spacings.size else 1.0
-    bar_width = 0.82 * spacing / max(len(processed), 1)
-    offsets = (np.arange(len(processed), dtype=np.float64) - (len(processed) - 1) / 2.0) * bar_width
+    support_values = np.unique(
+        np.concatenate([unique_values for _, unique_values, _ in processed])
+    ).astype(np.float64)
+    if max_domain_size_display is not None:
+        support_values = support_values[support_values <= max_domain_size_display]
+    if support_values.size == 0:
+        return
+    positions = np.arange(len(support_values), dtype=np.float64)
+    support_index = {float(value): idx for idx, value in enumerate(support_values)}
+    group_width = 0.9
+    bar_width = group_width / max(len(processed), 1)
+    offsets = (
+        np.arange(len(processed), dtype=np.float64) - (len(processed) - 1) / 2.0
+    ) * bar_width
 
-    fig, ax = plt.subplots(figsize=figsize)
-    for idx, (eps, values) in enumerate(processed):
-        unique_values, counts = np.unique(values, return_counts=True)
-        probabilities = counts.astype(np.float64) / float(np.sum(counts))
+    plot_height = 1.3081
+    left_margin = 31.095 / 72.0
+    right_margin = 4.5 / 72.0
+    bottom_margin = 27.66 / 72.0
+    top_margin = max(float(figsize[1]) - bottom_margin - plot_height, 0.0)
+    fig, ax = uplt.subplots(figsize=figsize, dpi=600, tight=False)
+    ax.set_position(
+        [
+            left_margin / float(figsize[0]),
+            bottom_margin / float(figsize[1]),
+            1.0 - (left_margin + right_margin) / float(figsize[0]),
+            1.0 - (bottom_margin + top_margin) / float(figsize[1]),
+        ]
+    )
+    for idx, (eps, unique_values, probabilities) in enumerate(processed):
         color = color_by_epsilon.get(float(eps), fallback_colors[idx % len(fallback_colors)])
         is_zero_epsilon = np.isclose(float(eps), 0.0)
+        aligned_probabilities = np.zeros_like(support_values, dtype=np.float64)
+        for value, probability in zip(unique_values, probabilities):
+            support_idx = support_index.get(float(value))
+            if support_idx is not None:
+                aligned_probabilities[support_idx] = float(probability)
         ax.bar(
-            unique_values + offsets[idx],
-            probabilities,
+            positions + offsets[idx],
+            aligned_probabilities,
             width=bar_width,
             color=color,
             edgecolor="#000000",
-            linewidth=0.35,
-            alpha=1.0 if is_zero_epsilon else 0.78,
-            hatch="///" if is_zero_epsilon else None,
-            label=rf"$\varepsilon={eps:g}$",
+            linewidth=0.2,
+            alpha=1.0 if is_zero_epsilon else 0.95,
+            hatch=None,
+            label=rf"$\varepsilon_\mathrm{{RLJ}}={eps:g}$",
         )
 
+    major_tick_mask = np.isclose(np.mod(support_values, 20.0), 0.0)
+    if not np.any(major_tick_mask):
+        major_tick_mask[:: max(len(support_values) // 8, 1)] = True
+    ax.set_xticks(positions[major_tick_mask])
+    ax.set_xticklabels(
+        [f"{int(value):d}" for value in support_values[major_tick_mask]],
+        fontsize=TICK_FONTSIZE,
+    )
+    ax.set_xticks(positions, minor=True)
+    ax.set_xlim(-0.5 - group_width / 2.0, len(support_values) - 0.5 + group_width / 2.0)
     ax.set_xlabel("domain size", fontsize=LABEL_FONTSIZE)
     ax.set_ylabel("probability", fontsize=LABEL_FONTSIZE)
-    ax.legend(frameon=False, fontsize=LEGEND_FONTSIZE)
-    style_axes(ax)
-    fig.tight_layout()
-    fig.savefig(path, dpi=dpi)
-    plt.close(fig)
+    ax.format(
+        xspineloc="both",
+        yspineloc="both",
+        xtickloc="both",
+        ytickloc="both",
+        tickdir="in",
+        grid=False,
+    )
+    ax.tick_params(axis="both", which="both", labelsize=TICK_FONTSIZE)
+    ax.tick_params(axis="x", which="both", bottom=False, top=True, labelbottom=True)
+    ax.legend(frameon=False, fontsize=LEGEND_FONTSIZE, ncols=3)
+    fig.savefig(path)
+    uplt.close(fig)
 
 
 def write_dual_scalar_violin_vs_epsilon_plot(
@@ -573,58 +626,99 @@ def write_exchange_rate_comparison_plot(
     assoc_data: List[np.ndarray],
     dissoc_data: List[np.ndarray],
 ) -> None:
-    assoc_xs: List[float] = []
+    positions: List[float] = []
+    xtick_labels: List[str] = []
     assoc_means: List[float] = []
-    dissoc_xs: List[float] = []
     dissoc_means: List[float] = []
     for eps, assoc_values, dissoc_values in zip(epsilon_values, assoc_data, dissoc_data):
         assoc_arr = finite_array(assoc_values)
         assoc_arr = assoc_arr[assoc_arr > 0.0]
-        if assoc_arr.size:
-            assoc_xs.append(float(eps))
-            assoc_means.append(float(np.mean(assoc_arr)))
-
         dissoc_arr = finite_array(dissoc_values)
         dissoc_arr = dissoc_arr[dissoc_arr > 0.0]
-        if dissoc_arr.size:
-            dissoc_xs.append(float(eps))
-            dissoc_means.append(float(np.mean(dissoc_arr)))
+        if assoc_arr.size == 0 and dissoc_arr.size == 0:
+            continue
 
-    if not assoc_xs and not dissoc_xs:
+        positions.append(float(len(positions)))
+        xtick_labels.append(f"{eps:g}")
+        assoc_means.append(float(np.mean(assoc_arr)) if assoc_arr.size else float("nan"))
+        dissoc_means.append(float(np.mean(dissoc_arr)) if dissoc_arr.size else float("nan"))
+
+    if not positions:
         return
 
-    fig, ax = plt.subplots(figsize=(3.3, 2.0))
-    if assoc_xs:
-        ax.plot(
-            assoc_xs,
-            assoc_means,
+    position_array = np.asarray(positions, dtype=np.float64)
+    assoc_mean_array = np.asarray(assoc_means, dtype=np.float64)
+    dissoc_mean_array = np.asarray(dissoc_means, dtype=np.float64)
+    positive_values = np.concatenate(
+        (
+            assoc_mean_array[np.isfinite(assoc_mean_array)],
+            dissoc_mean_array[np.isfinite(dissoc_mean_array)],
+        )
+    )
+    if positive_values.size == 0:
+        return
+
+    width = 0.36
+    y_floor = 10.0 ** np.floor(np.log10(np.min(positive_values)))
+    y_ceiling = 10.0 ** np.ceil(np.log10(np.max(positive_values) * 1.2))
+
+    fig, ax = uplt.subplots(figsize=(3.3, 2.0), dpi=600)
+    assoc_mask = np.isfinite(assoc_mean_array)
+    if np.any(assoc_mask):
+        ax.bar(
+            position_array[assoc_mask] - width / 2,
+            assoc_mean_array[assoc_mask],
+            width=width,
+            bottom=y_floor,
             color="#e77500",
-            lw=1.8,
-            marker="o",
-            ms=4.0,
-            label="assoc. exchange",
+            edgecolor="black",
+            linewidth=0.5,
+            label="assoc.",
+            zorder=3,
         )
-    if dissoc_xs:
-        ax.plot(
-            dissoc_xs,
-            dissoc_means,
+    dissoc_mask = np.isfinite(dissoc_mean_array)
+    if np.any(dissoc_mask):
+        ax.bar(
+            position_array[dissoc_mask] + width / 2,
+            dissoc_mean_array[dissoc_mask],
+            width=width,
+            bottom=y_floor,
             color="#121212",
-            lw=1.8,
-            marker="o",
-            ms=4.0,
-            label="dissoc. route",
+            edgecolor="black",
+            linewidth=0.5,
+            label="dissoc.",
+            zorder=3,
         )
+    ax.set_xticks(position_array)
+    ax.set_xticklabels(xtick_labels, fontsize=TICK_FONTSIZE)
     ax.set_yscale("log")
-    ax.set_xlabel(r"$\varepsilon_\mathrm{reactiveLJ}$", fontsize=LABEL_FONTSIZE)
+    ax.set_ylim(y_floor, y_ceiling)
+    ax.yaxis.set_major_formatter(mticker.LogFormatterSciNotation(base=10.0))
+    ax.set_xlabel(
+        r"$\varepsilon_\mathrm{RLJ}/\varepsilon_0$",
+        fontsize=LABEL_FONTSIZE,
+    )
     ax.set_ylabel(r"$R_\mathrm{a}, R_\mathrm{d}$ ($\tau^{-1}$)", fontsize=LABEL_FONTSIZE)
-    ax.set_xticks(epsilon_values)
-    ax.set_xticklabels([f"{eps:g}" for eps in epsilon_values])
-    ax.tick_params(labelsize=TICK_FONTSIZE)
-    ax.grid(alpha=0.2, axis="y")
-    ax.legend(frameon=False, fontsize=LEGEND_FONTSIZE)
-    fig.tight_layout()
-    fig.savefig(path, dpi=PLOT_DPI)
-    plt.close(fig)
+    ax.format(
+        xspineloc="both",
+        yspineloc="both",
+        xtickloc="both",
+        ytickloc="both",
+        tickdir="in",
+        grid=False,
+    )
+    ax.tick_params(axis="both", labelsize=TICK_FONTSIZE)
+    ax.legend(
+        frameon=False,
+        fontsize=LEGEND_FONTSIZE,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0.98),
+        ncols=2,
+        handletextpad=0.5,
+        columnspacing=1.0,
+    )
+    fig.savefig(path)
+    uplt.close(fig)
 
 
 def write_rg_time_vs_epsilon_plot(
@@ -764,6 +858,94 @@ def write_combined_tau_vs_epsilon_plot(
     plt.close(fig)
 
 
+def write_tau_bar_vs_epsilon_plot(
+    path: str,
+    summary_rows: List[Dict[str, float]],
+    tau_r0: float = DEFAULT_TAU_R0,
+) -> None:
+    rows: List[Tuple[float, float, float]] = []
+    for row in summary_rows:
+        epsilon = float(row["epsilon"])
+        tau_s = float(row["tau_s_mean"])
+        tau_b = float(row["tau_b_mean"])
+        if epsilon <= 0.0:
+            continue
+        tau_s_excluded = epsilon_is_excluded(epsilon, TAU_S_BAR_PLOT_EXCLUDED_EPSILONS)
+        tau_s_value = float("nan")
+        if not tau_s_excluded and np.isfinite(tau_s) and tau_s > 0.0:
+            tau_s_value = tau_s / tau_r0
+        tau_b_value = float("nan")
+        if np.isfinite(tau_b) and tau_b > 0.0:
+            tau_b_value = tau_b / tau_r0
+        if not (np.isfinite(epsilon) and (np.isfinite(tau_s_value) or np.isfinite(tau_b_value))):
+            continue
+        rows.append((epsilon, tau_s_value, tau_b_value))
+
+    if not rows:
+        return
+
+    rows.sort(key=lambda item: item[0])
+    epsilon_values = np.asarray([row[0] for row in rows], dtype=np.float64)
+    tau_s_values = np.asarray([row[1] for row in rows], dtype=np.float64)
+    tau_b_values = np.asarray([row[2] for row in rows], dtype=np.float64)
+
+    positions = np.arange(len(rows), dtype=float)
+    width = 0.36
+    positive_values = np.concatenate((tau_s_values[np.isfinite(tau_s_values)], tau_b_values[np.isfinite(tau_b_values)]))
+    y_floor = 10.0 ** np.floor(np.log10(np.min(positive_values)))
+
+    fig, ax = uplt.subplots(figsize=(3.3, 2.0), dpi=600)
+    tau_s_mask = np.isfinite(tau_s_values)
+    if np.any(tau_s_mask):
+        ax.bar(
+            positions[tau_s_mask] - width / 2,
+            tau_s_values[tau_s_mask],
+            width=width,
+            bottom=y_floor,
+            color="#e77500",
+            edgecolor="black",
+            linewidth=0.5,
+            label=r"$\tau_s$",
+            zorder=3,
+        )
+    tau_b_mask = np.isfinite(tau_b_values)
+    if np.any(tau_b_mask):
+        ax.bar(
+            positions[tau_b_mask] + width / 2,
+            tau_b_values[tau_b_mask],
+            width=width,
+            bottom=y_floor,
+            color="#121212",
+            edgecolor="black",
+            linewidth=0.5,
+            label=r"$\tau_b$",
+            zorder=3,
+        )
+
+    ax.set_xticks(positions)
+    ax.set_xticklabels([f"{epsilon:g}" for epsilon in epsilon_values], fontsize=TICK_FONTSIZE)
+    ax.set_yscale("log")
+    ax.set_ylim(y_floor, float(np.max(positive_values) * 1.3))
+    ax.set_xlabel(
+        r"$\varepsilon_\mathrm{RLJ}/\varepsilon_0$",
+        fontsize=LABEL_FONTSIZE,
+    )
+    ax.set_ylabel(r"$\tau/\tau_R^{(0)}$", fontsize=LABEL_FONTSIZE)
+    ax.format(
+        xspineloc="both",
+        yspineloc="both",
+        xtickloc="both",
+        ytickloc="both",
+        tickdir="in",
+        grid=False,
+    )
+    ax.tick_params(axis="both", labelsize=TICK_FONTSIZE)
+    ax.legend(frameon=False, fontsize=LEGEND_FONTSIZE, loc="best")
+
+    fig.savefig(path)
+    uplt.close(fig)
+
+
 def aggregate_timeseries(
     replicate_results: List[Dict],
     key_time: str,
@@ -867,6 +1049,7 @@ def analyze_replicate(
         total_transition_time = 0.0
         free_sticker_time = 0.0
 
+        domain_bond_streaks: Dict[Tuple[int, int], int] = {}
         prev_bonds: set | None = None
         prev_open_count: int | None = None
         prev_has_partner: np.ndarray | None = None
@@ -900,12 +1083,26 @@ def analyze_replicate(
                     paired_j_idx = sticker_idx_map[paired_array[:, 1]]
                     np.add.at(degrees, paired_i_idx, 1)
                     np.add.at(degrees, paired_j_idx, 1)
-                    loop_length_series.extend(
-                        np.abs(paired_array[:, 0] - paired_array[:, 1]).tolist()
-                    )
-            if not paired_bonds:
-                # Represent frames with no paired sticker-sticker bond explicitly.
+
+            current_domain_bond_streaks: Dict[Tuple[int, int], int] = {}
+            for bond in paired_bonds:
+                current_domain_bond_streaks[bond] = domain_bond_streaks.get(bond, 0) + 1
+            persistent_domain_bonds = [
+                bond
+                for bond, streak in current_domain_bond_streaks.items()
+                if streak >= DOMAIN_MIN_PERSISTENCE_FRAMES
+            ]
+            if persistent_domain_bonds:
+                persistent_domain_array = np.asarray(persistent_domain_bonds, dtype=np.int64)
+                loop_length_series.extend(
+                    np.abs(
+                        persistent_domain_array[:, 0] - persistent_domain_array[:, 1]
+                    ).tolist()
+                )
+            else:
+                # Represent frames with no persistent paired sticker-sticker bond explicitly.
                 loop_length_series.append(0)
+            domain_bond_streaks = current_domain_bond_streaks
 
             bond_corr.update(paired_bonds)
             bond_count_series.append(float(len(paired_bonds)))
@@ -1369,17 +1566,17 @@ def main() -> None:
             label="Sticker swap rate / free sticker",
             color="#121212",
         )
-        for tau_plot_filename in (
-            "tau_s_vs_epsilon.svg",
-            "brachiation_tau_vs_epsilon.svg",
-        ):
-            write_combined_tau_vs_epsilon_plot(
-                os.path.join(args.output_dir, tau_plot_filename),
-                tau_s_eps,
-                tau_s_plot_data,
-                tau_b_eps,
-                tau_b_plot_data,
-            )
+        write_combined_tau_vs_epsilon_plot(
+            os.path.join(args.output_dir, "tau_s_vs_epsilon.svg"),
+            tau_s_eps,
+            tau_s_plot_data,
+            tau_b_eps,
+            tau_b_plot_data,
+        )
+        write_tau_bar_vs_epsilon_plot(
+            os.path.join(args.output_dir, "brachiation_tau_vs_epsilon.svg"),
+            summary_rows,
+        )
         write_median_iqr_line_vs_epsilon_plot(
             os.path.join(args.output_dir, "sticker_fraction_bond0_violin.svg"),
             epsilon_values,

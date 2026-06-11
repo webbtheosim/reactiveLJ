@@ -34,6 +34,7 @@ FALLBACK_TAU_R0 = 4041.0
 MAX_ANALYSIS_LAG_TAU_R0 = 1000.0
 MAX_ANALYSIS_LAG_TIME = FALLBACK_TAU_R0 * MAX_ANALYSIS_LAG_TAU_R0
 DEFAULT_STRESS_MAX_RUNTIME_FRACTION = 1.0 / 3.0
+DEFAULT_EXTENSION_STITCH_TIME = 25.0
 PLOT_MIN_G = 1.0e-3
 DEFAULT_WEAKENING_EXPONENT = 4.0
 ConditionKey = Tuple[float, float]
@@ -120,10 +121,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--extension-stitch-time",
         type=float,
-        default=FALLBACK_TAU_R0,
+        default=DEFAULT_EXTENSION_STITCH_TIME,
         help=(
             "Lag time in tau_LJ at which to switch from dense extension curves "
-            "to the original long production curves. Default: 1 tau_R^0."
+            "to the original long production curves. Default: 25 tau_LJ, "
+            "the first native lag of the base virial logs."
         ),
     )
     parser.add_argument(
@@ -202,9 +204,8 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=PLOT_MIN_G,
         help=(
-            "After plot log-binning, stop plotting each aggregate condition "
-            "curve at the first point where mean G is below this value or "
-            "mean G <= binned stderr / 5."
+            "After optional plot log-binning, stop plotting each curve at the "
+            "first point where G is below this value."
         ),
     )
     parser.add_argument(
@@ -785,7 +786,7 @@ def stitch_extension_aggregates(
     extension_aggregated: Dict[ConditionKey, AggregateResult],
     stitch_time: float,
 ) -> Dict[ConditionKey, AggregateResult]:
-    """Use dense extension data up to stitch_time and base data afterward."""
+    """Use dense extension data before stitch_time and base data at/afterward."""
     if stitch_time <= 0.0:
         raise RuntimeError("--extension-stitch-time must be positive.")
 
@@ -796,8 +797,8 @@ def stitch_extension_aggregates(
             stitched[condition] = base
             continue
 
-        extension_mask = extension.time <= float(stitch_time)
-        base_mask = base.time > float(stitch_time)
+        extension_mask = extension.time < float(stitch_time)
+        base_mask = base.time >= float(stitch_time)
         if not np.any(extension_mask):
             stitched[condition] = base
             continue
@@ -889,8 +890,8 @@ def format_condition_label(
     if len(epsilon_values) == 1 and len(weakening_values) > 1:
         return f"p={weakening_exponent:g}"
     if len(weakening_values) == 1:
-        return f"eps={epsilon:g}"
-    return f"eps={epsilon:g}, p={weakening_exponent:g}"
+        return rf"$\varepsilon_\mathrm{{RLJ}}={epsilon:g}$"
+    return rf"$\varepsilon_\mathrm{{RLJ}}={epsilon:g}$, p={weakening_exponent:g}"
 
 
 def condition_dir_name(condition: ConditionKey, include_p: bool) -> str:
@@ -1086,31 +1087,27 @@ def log_bin_mean_and_stderr_for_plot(
     )
 
 
-def truncate_at_signal_floor(
+def truncate_at_plot_floor(
     time: np.ndarray,
-    mean: np.ndarray,
-    stderr: np.ndarray,
+    values: np.ndarray,
     min_plot_g: float,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """Return the prefix before the first point where G is noise-dominated."""
-    n = min(time.size, mean.size, stderr.size)
+    """Return the prefix before the first point where G drops below the plot floor."""
+    n = min(time.size, values.size)
     if n == 0:
         return np.empty((0,), dtype=np.float64), np.empty((0,), dtype=np.float64)
 
     time_arr = np.asarray(time[:n], dtype=np.float64)
-    mean_arr = np.asarray(mean[:n], dtype=np.float64)
-    stderr_arr = np.asarray(stderr[:n], dtype=np.float64)
-    finite = (
+    value_arr = np.asarray(values[:n], dtype=np.float64)
+    keep = (
         np.isfinite(time_arr)
-        & np.isfinite(mean_arr)
-        & np.isfinite(stderr_arr)
+        & np.isfinite(value_arr)
+        & (time_arr > 0.0)
+        & (value_arr >= float(min_plot_g))
     )
-    signal_above_noise = mean_arr > stderr_arr / 5.0
-    signal_above_plot_floor = mean_arr >= float(min_plot_g)
-    keep = finite & (time_arr > 0.0) & signal_above_noise & signal_above_plot_floor
     invalid_idx = np.flatnonzero(~keep)
     end = int(invalid_idx[0]) if invalid_idx.size > 0 else n
-    return time_arr[:end], mean_arr[:end]
+    return time_arr[:end], value_arr[:end]
 
 
 def write_stress_modulus_by_epsilon_plot(
@@ -1153,10 +1150,9 @@ def write_stress_modulus_by_epsilon_plot(
                 linear_lags=plot_linear_lags,
                 bins_per_decade=plot_bins_per_decade,
             )
-        lag_time, mean = truncate_at_signal_floor(
+        lag_time, mean = truncate_at_plot_floor(
             lag_time,
             mean,
-            stderr,
             min_plot_g=float(min_plot_g),
         )
         if lag_time.size == 0 or mean.size == 0:
@@ -1263,6 +1259,13 @@ def write_all_replicate_stress_modulus_plot(
                 linear_lags=plot_linear_lags,
                 bins_per_decade=plot_bins_per_decade,
             )
+        lag_time, modulus = truncate_at_plot_floor(
+            lag_time,
+            modulus,
+            min_plot_g=float(min_plot_g),
+        )
+        if lag_time.size == 0 or modulus.size == 0:
+            continue
 
         x = lag_time / tau_r0
         y = modulus

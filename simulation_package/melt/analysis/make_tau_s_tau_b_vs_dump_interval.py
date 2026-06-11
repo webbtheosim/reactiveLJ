@@ -39,6 +39,8 @@ from scipy.spatial import cKDTree
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
+import ultraplot as uplt
 
 sys.path.append(os.path.dirname(__file__))
 
@@ -52,12 +54,20 @@ from analysis_utils import (
 DEFAULT_EPSILONS = (6.0, 12.0, 15.0, 18.0)
 DEFAULT_BOND_PERSISTENCE_EPSILONS = (3.0, 6.0, 9.0, 12.0, 15.0, 18.0)
 DEFAULT_STRIDES = (1, 2, 3, 4, 6, 8, 12, 16, 20)
+DEFAULT_TAU_R0 = 4041.0
 DEFAULT_MAX_LAG_FRAMES = 100
 DEFAULT_FIGSIZE = (3.1, 2.0)
 DEFAULT_DPI = 1000
 DEFAULT_TICK_FONTSIZE = 8
 DEFAULT_LABEL_FONTSIZE = 10
 DEFAULT_LEGEND_FONTSIZE = 8
+DEFAULT_AXES_HEIGHT = 1.35
+DEFAULT_AXES_ASPECT = 1.26
+DEFAULT_AXES_WIDTH = DEFAULT_AXES_HEIGHT * DEFAULT_AXES_ASPECT
+DEFAULT_AXES_LEFT_MARGIN = 0.64
+DEFAULT_AXES_RIGHT_MARGIN = 0.08
+DEFAULT_AXES_BOTTOM_MARGIN = 0.43
+DEFAULT_AXES_TOP_MARGIN = 0.10
 
 
 @dataclass(frozen=True)
@@ -170,7 +180,9 @@ def discover_runs(input_root: Path, requested_epsilons: Iterable[float]) -> list
 
 
 def format_epsilon_label(epsilon: float) -> str:
-    return rf"{epsilon:g}$\mathrm{{k}}_\mathrm{{B}}T$"
+    if np.isclose(float(epsilon), 0.0, rtol=0.0, atol=1.0e-12):
+        return r"$\varepsilon_\mathrm{RLJ}=\mathrm{None}$"
+    return rf"$\varepsilon_\mathrm{{RLJ}}={epsilon:g}$"
 
 
 def build_epsilon_color_map(epsilons: list[float]) -> dict[float, tuple[float, ...]]:
@@ -183,6 +195,21 @@ def build_epsilon_color_map(epsilons: list[float]) -> dict[float, tuple[float, .
         epsilon: tuple(color)
         for epsilon, color in zip(reference_epsilons, colors)
     }
+
+
+def make_fixed_axes_figure():
+    fig_width = DEFAULT_AXES_LEFT_MARGIN + DEFAULT_AXES_WIDTH + DEFAULT_AXES_RIGHT_MARGIN
+    fig_height = DEFAULT_AXES_BOTTOM_MARGIN + DEFAULT_AXES_HEIGHT + DEFAULT_AXES_TOP_MARGIN
+    fig, ax = uplt.subplots(figsize=(fig_width, fig_height), dpi=DEFAULT_DPI, tight=False)
+    ax.set_position(
+        [
+            DEFAULT_AXES_LEFT_MARGIN / fig_width,
+            DEFAULT_AXES_BOTTOM_MARGIN / fig_height,
+            DEFAULT_AXES_WIDTH / fig_width,
+            DEFAULT_AXES_HEIGHT / fig_height,
+        ]
+    )
+    return fig, ax
 
 
 def mean_and_stderr(values: list[float]) -> tuple[float, float]:
@@ -560,13 +587,26 @@ def build_aggregates(
     return aggregates
 
 
+def apply_wraparound_tick_style(ax: plt.Axes) -> None:
+    for spine in ("bottom", "top", "left", "right"):
+        ax.spines[spine].set_visible(True)
+    ax.tick_params(
+        axis="both",
+        which="both",
+        direction="in",
+        top=True,
+        right=True,
+        labelsize=DEFAULT_TICK_FONTSIZE,
+    )
+
+
 def make_plot(path: Path, aggregates: list[dict[str, float | int]], epsilons: list[float]) -> None:
     by_epsilon: dict[float, list[dict[str, float | int]]] = defaultdict(list)
     for row in aggregates:
         by_epsilon[float(row["epsilon"])].append(row)
 
     color_map = build_epsilon_color_map(epsilons)
-    fig, ax = plt.subplots(figsize=DEFAULT_FIGSIZE, dpi=DEFAULT_DPI)
+    fig, ax = make_fixed_axes_figure()
 
     plotted_dump_intervals: list[float] = []
     for epsilon in epsilons:
@@ -575,43 +615,49 @@ def make_plot(path: Path, aggregates: list[dict[str, float | int]], epsilons: li
         if not rows:
             continue
 
-        dump_interval = np.asarray([float(row["dump_interval_tau_lj"]) for row in rows], dtype=np.float64)
-        tau_s_mean = np.asarray([float(row["tau_s_mean"]) for row in rows], dtype=np.float64)
-        tau_s_stderr = np.asarray([float(row["tau_s_stderr"]) for row in rows], dtype=np.float64)
-        tau_b_mean = np.asarray([float(row["tau_b_mean"]) for row in rows], dtype=np.float64)
-        tau_b_stderr = np.asarray([float(row["tau_b_stderr"]) for row in rows], dtype=np.float64)
+        dump_interval = (
+            np.asarray([float(row["dump_interval_tau_lj"]) for row in rows], dtype=np.float64)
+            / DEFAULT_TAU_R0
+        )
+        tau_s_mean = (
+            np.asarray([float(row["tau_s_mean"]) for row in rows], dtype=np.float64)
+            / DEFAULT_TAU_R0
+        )
+        tau_b_mean = (
+            np.asarray([float(row["tau_b_mean"]) for row in rows], dtype=np.float64)
+            / DEFAULT_TAU_R0
+        )
 
         tau_s_mask = np.isfinite(dump_interval) & np.isfinite(tau_s_mean) & (tau_s_mean > 0.0)
         if np.any(tau_s_mask):
             plotted_dump_intervals.extend(dump_interval[tau_s_mask].tolist())
-            ax.errorbar(
+            ax.plot(
                 dump_interval[tau_s_mask],
                 tau_s_mean[tau_s_mask],
-                yerr=tau_s_stderr[tau_s_mask],
                 color=color,
                 linewidth=1.5,
                 linestyle="-",
                 marker="o",
-                markersize=3.2,
-                capsize=2.0,
-                label=rf"$\tau_s$, {format_epsilon_label(epsilon)}",
+                markersize=3.6,
+                markerfacecolor=color,
+                markeredgecolor="black",
+                markeredgewidth=0.45,
             )
 
         tau_b_mask = np.isfinite(dump_interval) & np.isfinite(tau_b_mean) & (tau_b_mean > 0.0)
         if np.any(tau_b_mask):
             plotted_dump_intervals.extend(dump_interval[tau_b_mask].tolist())
-            ax.errorbar(
+            ax.plot(
                 dump_interval[tau_b_mask],
                 tau_b_mean[tau_b_mask],
-                yerr=tau_b_stderr[tau_b_mask],
                 color=color,
                 linewidth=1.5,
                 linestyle="-",
                 marker="^",
-                markersize=3.2,
-                capsize=2.0,
-                alpha=0.5,
-                label=rf"$\tau_b$, {format_epsilon_label(epsilon)}",
+                markersize=3.8,
+                markerfacecolor=color,
+                markeredgecolor="black",
+                markeredgewidth=0.45,
             )
 
     if plotted_dump_intervals:
@@ -624,27 +670,84 @@ def make_plot(path: Path, aggregates: list[dict[str, float | int]], epsilons: li
             color="black",
             linestyle="--",
             linewidth=1.1,
-            label=r"$y = 2\Delta t$",
         )
 
     ax.set_xscale("log")
     ax.set_yscale("log")
-    ax.set_xlabel(r"Dump interval, $\Delta t$ $(\tau_\mathrm{LJ})$", fontsize=DEFAULT_LABEL_FONTSIZE)
-    ax.set_ylabel(r"$\tau_s$, $\tau_b$ $(\tau_\mathrm{LJ})$", fontsize=DEFAULT_LABEL_FONTSIZE)
-    ax.tick_params(axis="both", which="both", labelsize=DEFAULT_TICK_FONTSIZE)
-    ax.legend(
+    ax.set_xlabel(r"Dump interval, $\Delta t / \tau_R^{(0)}$", fontsize=DEFAULT_LABEL_FONTSIZE)
+    ax.set_ylabel(
+        r"$\tau_s$, $\tau_b$ $(\tau/\tau_R^{(0)})$",
+        fontsize=DEFAULT_LABEL_FONTSIZE,
+    )
+    apply_wraparound_tick_style(ax)
+    shape_handles = [
+        Line2D(
+            [],
+            [],
+            linestyle="none",
+            marker="o",
+            markersize=4.2,
+            markerfacecolor="white",
+            markeredgecolor="black",
+            markeredgewidth=0.6,
+            label=r"$\tau_s$",
+        ),
+        Line2D(
+            [],
+            [],
+            linestyle="none",
+            marker="^",
+            markersize=4.4,
+            markerfacecolor="white",
+            markeredgecolor="black",
+            markeredgewidth=0.6,
+            label=r"$\tau_b$",
+        ),
+    ]
+    shape_legend = ax.legend(
+        handles=shape_handles,
         fontsize=DEFAULT_LEGEND_FONTSIZE,
-        loc="center left",
-        bbox_to_anchor=(1.02, 0.5),
-        frameon=True,
-        facecolor="white",
-        framealpha=1.0,
+        loc="upper left",
+        bbox_to_anchor=(1.01, 1.0),
+        frameon=False,
+        ncol=2,
+        columnspacing=0.9,
+        handlelength=1.0,
+        handletextpad=0.35,
+        borderpad=0.0,
+        borderaxespad=0.0,
+    )
+    ax.add_artist(shape_legend)
+
+    color_handles = [
+        Line2D(
+            [],
+            [],
+            linestyle="-",
+            linewidth=1.5,
+            color=color_map[float(epsilon)],
+        )
+        for epsilon in epsilons
+    ]
+    color_legend = ax.legend(
+        handles=color_handles,
+        labels=[format_epsilon_label(epsilon) for epsilon in epsilons],
+        fontsize=DEFAULT_LEGEND_FONTSIZE,
+        loc="upper left",
+        bbox_to_anchor=(1.01, 0.82),
+        frameon=False,
+        handlelength=1.3,
+        handletextpad=0.45,
+        labelspacing=0.25,
+        borderpad=0.0,
+        borderaxespad=0.0,
         ncol=1,
     )
-    fig.tight_layout()
+    for text in color_legend.get_texts():
+        text.set_color("black")
     path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(path, bbox_inches="tight")
-    plt.close(fig)
+    fig.savefig(path, bbox_inches="tight", bbox_extra_artists=(shape_legend, color_legend))
+    uplt.close(fig)
 
 
 def main() -> None:

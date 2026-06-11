@@ -36,7 +36,7 @@
   "init_bond_length": 0.97,
   "max_chain_attempts": 1000,
   "max_bead_attempts": 1000,
-  "run_status": "running",
+  "run_status": "complete",
   "extension_run": true,
   "source_run_dir": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/melt/data_generation/outputs_clean/eps_0/rep_004",
   "source_checkpoint": "/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/melt/data_generation/outputs_clean/eps_0/rep_004/checkpoint.gsd",
@@ -55,5 +55,7 @@
   "initial_box_length": 57.31043246332724,
   "trajectory_particle_subset": "none",
   "virial_log_file": "virial_tensor_log.gsd",
-  "position_frames_written": false
+  "position_frames_written": false,
+  "extension_final_timestep": 2433782000,
+  "extension_walltime_seconds": 1331.8457904699999
 }

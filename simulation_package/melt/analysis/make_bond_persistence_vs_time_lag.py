@@ -24,7 +24,9 @@ from analysis_utils import extract_semilog_linear_region
 
 
 DEFAULT_TAU_R = 4041.0
-DEFAULT_FIGSIZE = (3.1, 2.0)
+DEFAULT_FIGWIDTH_PT = 214.5419
+DEFAULT_FIGWIDTH_IN = DEFAULT_FIGWIDTH_PT / 72.0
+DEFAULT_FIGSIZE = (DEFAULT_FIGWIDTH_IN, DEFAULT_FIGWIDTH_IN * 2.0 / 3.0)
 DEFAULT_DPI = 1000
 DEFAULT_TICK_FONTSIZE = 8
 DEFAULT_LABEL_FONTSIZE = 10
@@ -179,6 +181,19 @@ def format_epsilon_label(epsilon: float) -> str:
     return rf"{epsilon:g}$\mathrm{{k}}_\mathrm{{B}}T$"
 
 
+def apply_wraparound_tick_style(ax: plt.Axes) -> None:
+    for spine in ("bottom", "top", "left", "right"):
+        ax.spines[spine].set_visible(True)
+    ax.tick_params(
+        axis="both",
+        which="both",
+        direction="in",
+        top=True,
+        right=True,
+        labelsize=DEFAULT_TICK_FONTSIZE,
+    )
+
+
 def main() -> None:
     args = parse_args()
 
@@ -217,20 +232,27 @@ def main() -> None:
     ax.set_yscale("log")
     ax.set_xlabel(r"$\tau / \tau_R^0$", fontsize=DEFAULT_LABEL_FONTSIZE)
     ax.set_ylabel(r"$f(t)$", fontsize=DEFAULT_LABEL_FONTSIZE)
-    ax.tick_params(axis="both", which="both", labelsize=DEFAULT_TICK_FONTSIZE)
-    ax.legend(
+    apply_wraparound_tick_style(ax)
+    legend = ax.legend(
         fontsize=DEFAULT_LEGEND_FONTSIZE,
-        loc="center left",
-        bbox_to_anchor=(1.02, 0.5),
-        frameon=True,
-        facecolor="white",
-        framealpha=1.0,
+        loc="upper right",
+        frameon=False,
+        handlelength=0.0,
+        handletextpad=0.0,
+        borderpad=0.0,
+        labelspacing=0.25,
         ncol=1,
     )
+    legend_handles = getattr(legend, "legend_handles", None)
+    if legend_handles is None:
+        legend_handles = legend.legendHandles
+    for handle, text in zip(legend_handles, legend.get_texts()):
+        text.set_color(handle.get_color())
+        handle.set_visible(False)
     fig.tight_layout()
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(args.output, bbox_inches="tight")
+    fig.savefig(args.output)
     plt.close(fig)
 
     print(

@@ -36,6 +36,8 @@ from scipy.spatial import cKDTree
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
+import ultraplot as uplt
 
 sys.path.append(os.path.dirname(__file__))
 
@@ -43,14 +45,21 @@ from analysis_utils import compute_r_thresh, fit_exponential_semilog_linear_regi
 
 
 DEFAULT_TAU_R0 = 4041.0
-DEFAULT_TARGET_DUMP_INTERVAL_TAU_R0 = 2.0e4
+DEFAULT_STRIDES = (20, 40, 60, 80, 120, 160, 240, 320, 400)
 DEFAULT_MAX_LAG_FRAMES = 100
-DEFAULT_STRIDE_COUNT = 12
 DEFAULT_FIGSIZE = (3.1, 2.0)
 DEFAULT_DPI = 1000
 DEFAULT_TICK_FONTSIZE = 8
 DEFAULT_LABEL_FONTSIZE = 10
 DEFAULT_LEGEND_FONTSIZE = 8
+DEFAULT_AXES_HEIGHT = 1.35
+DEFAULT_AXES_ASPECT = 1.26
+DEFAULT_AXES_WIDTH = DEFAULT_AXES_HEIGHT * DEFAULT_AXES_ASPECT
+DEFAULT_AXES_LEFT_MARGIN = 0.64
+DEFAULT_AXES_RIGHT_MARGIN = 0.08
+DEFAULT_AXES_BOTTOM_MARGIN = 0.43
+DEFAULT_AXES_TOP_MARGIN = 0.10
+TAU_S_PLOT_EXCLUDED_EPSILONS = (0.0,)
 
 
 @dataclass(frozen=True)
@@ -108,27 +117,11 @@ def parse_args() -> argparse.Namespace:
         "--strides",
         type=int,
         nargs="+",
-        default=None,
+        default=list(DEFAULT_STRIDES),
         help=(
-            "Explicit integer frame strides used to emulate coarser dump intervals. "
-            "When omitted, the script builds a log-spaced set of strides from 1 "
-            "up to the target dump interval."
+            "Integer frame strides used to emulate coarser dump intervals. "
+            "Defaults match the melt and semidilute effective dump intervals."
         ),
-    )
-    parser.add_argument(
-        "--target-dump-interval-tau-r0",
-        type=float,
-        default=DEFAULT_TARGET_DUMP_INTERVAL_TAU_R0,
-        help=(
-            "Target dump interval in units of tau_R^0 used to determine the "
-            "maximum stride (default 2e4)."
-        ),
-    )
-    parser.add_argument(
-        "--stride-count",
-        type=int,
-        default=DEFAULT_STRIDE_COUNT,
-        help="Number of log-spaced strides used when --strides is omitted.",
     )
     parser.add_argument(
         "--max-lag-frames",
@@ -186,12 +179,29 @@ def discover_runs(
 
 
 def format_epsilon_label(epsilon: float) -> str:
-    return rf"{epsilon:g}$\mathrm{{k}}_\mathrm{{B}}T$"
+    if np.isclose(float(epsilon), 0.0, rtol=0.0, atol=1.0e-12):
+        return r"$\varepsilon_\mathrm{RLJ}=\mathrm{None}$"
+    return rf"$\varepsilon_\mathrm{{RLJ}}={epsilon:g}$"
 
 
 def build_epsilon_color_map(epsilons: list[float]) -> dict[float, tuple[float, ...]]:
     colors = plt.cm.plasma(np.linspace(0.1, 0.9, len(epsilons)))
     return {epsilon: tuple(color) for epsilon, color in zip(epsilons, colors)}
+
+
+def make_fixed_axes_figure():
+    fig_width = DEFAULT_AXES_LEFT_MARGIN + DEFAULT_AXES_WIDTH + DEFAULT_AXES_RIGHT_MARGIN
+    fig_height = DEFAULT_AXES_BOTTOM_MARGIN + DEFAULT_AXES_HEIGHT + DEFAULT_AXES_TOP_MARGIN
+    fig, ax = uplt.subplots(figsize=(fig_width, fig_height), dpi=DEFAULT_DPI, tight=False)
+    ax.set_position(
+        [
+            DEFAULT_AXES_LEFT_MARGIN / fig_width,
+            DEFAULT_AXES_BOTTOM_MARGIN / fig_height,
+            DEFAULT_AXES_WIDTH / fig_width,
+            DEFAULT_AXES_HEIGHT / fig_height,
+        ]
+    )
+    return fig, ax
 
 
 def mean_and_stderr(values: list[float]) -> tuple[float, float]:
@@ -202,33 +212,6 @@ def mean_and_stderr(values: list[float]) -> tuple[float, float]:
     mean = float(np.mean(arr))
     stderr = float(np.std(arr, ddof=1) / np.sqrt(arr.size)) if arr.size > 1 else 0.0
     return mean, stderr
-
-
-def estimate_base_dump_interval_tau_r0(entries: list[RunEntry]) -> float:
-    intervals: list[float] = []
-    for entry in entries:
-        with entry.metadata_path.open("r", encoding="utf-8") as handle:
-            metadata = json.load(handle)
-        dt = float(metadata.get("dt", 0.005))
-        frame_steps = int(metadata.get("frame_steps", 10_000))
-        tau_r0 = float(metadata.get("tau_R0", DEFAULT_TAU_R0))
-        if tau_r0 > 0.0:
-            intervals.append(dt * frame_steps / tau_r0)
-    if not intervals:
-        raise RuntimeError("Failed to infer base dump interval from metadata.")
-    return min(intervals)
-
-
-def build_default_strides(
-    base_interval_tau_r0: float, target_interval_tau_r0: float, stride_count: int
-) -> list[int]:
-    if base_interval_tau_r0 <= 0.0:
-        return [1]
-    max_stride = max(1, int(np.ceil(target_interval_tau_r0 / base_interval_tau_r0)))
-    stride_count = max(1, stride_count)
-    raw = np.geomspace(1, max_stride, num=stride_count)
-    strides = sorted({int(round(val)) for val in raw} | {1, max_stride})
-    return [stride for stride in strides if stride > 0]
 
 
 def infer_dump_interval_tau_r0(
@@ -619,7 +602,7 @@ def make_plot(
         by_epsilon[float(row["epsilon"])].append(row)
 
     color_map = build_epsilon_color_map(epsilons)
-    fig, ax = plt.subplots(figsize=DEFAULT_FIGSIZE, dpi=DEFAULT_DPI)
+    fig, ax = make_fixed_axes_figure()
 
     plotted_dump_intervals: list[float] = []
     for epsilon in epsilons:
@@ -635,45 +618,43 @@ def make_plot(
             [float(row["dump_interval_tau_r0"]) for row in rows], dtype=np.float64
         )
         tau_s_mean = np.asarray([float(row["tau_s_mean"]) for row in rows], dtype=np.float64)
-        tau_s_stderr = np.asarray(
-            [float(row["tau_s_stderr"]) for row in rows], dtype=np.float64
-        )
         tau_b_mean = np.asarray([float(row["tau_b_mean"]) for row in rows], dtype=np.float64)
-        tau_b_stderr = np.asarray(
-            [float(row["tau_b_stderr"]) for row in rows], dtype=np.float64
-        )
 
+        plot_tau_s = not any(
+            np.isclose(float(epsilon), excluded, rtol=0.0, atol=1.0e-12)
+            for excluded in TAU_S_PLOT_EXCLUDED_EPSILONS
+        )
         tau_s_mask = np.isfinite(dump_interval) & np.isfinite(tau_s_mean) & (tau_s_mean > 0.0)
+        tau_s_mask &= plot_tau_s
         if np.any(tau_s_mask):
             plotted_dump_intervals.extend(dump_interval[tau_s_mask].tolist())
-            ax.errorbar(
+            ax.plot(
                 dump_interval[tau_s_mask],
                 tau_s_mean[tau_s_mask],
-                yerr=tau_s_stderr[tau_s_mask],
                 color=color,
                 linewidth=1.5,
                 linestyle="-",
                 marker="o",
-                markersize=3.2,
-                capsize=2.0,
-                label=rf"$\tau_s$, {format_epsilon_label(epsilon)}",
+                markersize=3.6,
+                markerfacecolor=color,
+                markeredgecolor="black",
+                markeredgewidth=0.45,
             )
 
         tau_b_mask = np.isfinite(dump_interval) & np.isfinite(tau_b_mean) & (tau_b_mean > 0.0)
         if np.any(tau_b_mask):
             plotted_dump_intervals.extend(dump_interval[tau_b_mask].tolist())
-            ax.errorbar(
+            ax.plot(
                 dump_interval[tau_b_mask],
                 tau_b_mean[tau_b_mask],
-                yerr=tau_b_stderr[tau_b_mask],
                 color=color,
                 linewidth=1.5,
                 linestyle="-",
                 marker="^",
-                markersize=3.2,
-                capsize=2.0,
-                alpha=0.5,
-                label=rf"$\tau_b$, {format_epsilon_label(epsilon)}",
+                markersize=3.8,
+                markerfacecolor=color,
+                markeredgecolor="black",
+                markeredgewidth=0.45,
             )
 
     if plotted_dump_intervals:
@@ -686,7 +667,6 @@ def make_plot(
             color="black",
             linestyle="--",
             linewidth=1.1,
-            label=r"$y = 2\Delta t$",
         )
 
     ax.set_xscale("log")
@@ -695,28 +675,94 @@ def make_plot(
     ax.set_ylabel(
         r"$\tau_s$, $\tau_b$ $(\tau/\tau_R^{(0)})$", fontsize=DEFAULT_LABEL_FONTSIZE
     )
-    ax.tick_params(axis="both", which="both", labelsize=DEFAULT_TICK_FONTSIZE)
-    ax.legend(
+    apply_wraparound_tick_style(ax)
+    shape_handles = [
+        Line2D(
+            [],
+            [],
+            linestyle="none",
+            marker="o",
+            markersize=4.2,
+            markerfacecolor="white",
+            markeredgecolor="black",
+            markeredgewidth=0.6,
+            label=r"$\tau_s$",
+        ),
+        Line2D(
+            [],
+            [],
+            linestyle="none",
+            marker="^",
+            markersize=4.4,
+            markerfacecolor="white",
+            markeredgecolor="black",
+            markeredgewidth=0.6,
+            label=r"$\tau_b$",
+        ),
+    ]
+    shape_legend = ax.legend(
+        handles=shape_handles,
         fontsize=DEFAULT_LEGEND_FONTSIZE,
-        loc="center left",
-        bbox_to_anchor=(1.02, 0.5),
-        frameon=True,
-        facecolor="white",
-        framealpha=1.0,
+        loc="upper left",
+        bbox_to_anchor=(1.01, 1.0),
+        frameon=False,
+        ncol=2,
+        columnspacing=0.9,
+        handlelength=1.0,
+        handletextpad=0.35,
+        borderpad=0.0,
+        borderaxespad=0.0,
+    )
+    ax.add_artist(shape_legend)
+
+    color_handles = [
+        Line2D(
+            [],
+            [],
+            linestyle="-",
+            linewidth=1.5,
+            color=color_map[float(epsilon)],
+        )
+        for epsilon in epsilons
+    ]
+    color_legend = ax.legend(
+        handles=color_handles,
+        labels=[format_epsilon_label(epsilon) for epsilon in epsilons],
+        fontsize=DEFAULT_LEGEND_FONTSIZE,
+        loc="upper left",
+        bbox_to_anchor=(1.01, 0.82),
+        frameon=False,
+        handlelength=1.3,
+        handletextpad=0.45,
+        labelspacing=0.25,
+        borderpad=0.0,
+        borderaxespad=0.0,
         ncol=1,
     )
-    fig.tight_layout()
+    for text in color_legend.get_texts():
+        text.set_color("black")
     path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(path, bbox_inches="tight")
-    plt.close(fig)
+    fig.savefig(path, bbox_inches="tight", bbox_extra_artists=(shape_legend, color_legend))
+    uplt.close(fig)
+
+
+def apply_wraparound_tick_style(ax: plt.Axes) -> None:
+    for spine in ("bottom", "top", "left", "right"):
+        ax.spines[spine].set_visible(True)
+    ax.tick_params(
+        axis="both",
+        which="both",
+        direction="in",
+        top=True,
+        right=True,
+        labelsize=DEFAULT_TICK_FONTSIZE,
+    )
 
 
 def main() -> None:
     args = parse_args()
     if args.max_lag_frames < 2:
         raise ValueError("--max-lag-frames must be at least 2.")
-    if args.target_dump_interval_tau_r0 <= 0.0:
-        raise ValueError("--target-dump-interval-tau-r0 must be positive.")
 
     runs = discover_runs(args.input_root, args.epsilons)
     if not runs:
@@ -729,13 +775,7 @@ def main() -> None:
         else sorted({entry.epsilon for entry in runs})
     )
 
-    if args.strides is None:
-        base_interval = estimate_base_dump_interval_tau_r0(runs)
-        strides = build_default_strides(
-            base_interval, args.target_dump_interval_tau_r0, int(args.stride_count)
-        )
-    else:
-        strides = sorted({int(stride) for stride in args.strides if int(stride) > 0})
+    strides = sorted({int(stride) for stride in args.strides if int(stride) > 0})
     if not strides:
         raise ValueError("At least one positive stride is required.")
 

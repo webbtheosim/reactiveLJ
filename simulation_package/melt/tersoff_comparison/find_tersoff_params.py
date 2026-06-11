@@ -10,11 +10,9 @@ import os
 from dataclasses import dataclass
 from functools import partial
 
-import matplotlib
 import numpy as np
 
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
+import ultraplot as uplt
 
 import jax
 import jax.numpy as jnp
@@ -26,6 +24,10 @@ EPSILONS_DEFAULT = (3.0, 6.0, 9.0, 12.0, 15.0, 18.0)
 REACTIVE_R_CUT_MULT = 1.5
 REACTIVE_WEAKENING_DISTANCE_MULT = 0.2
 REACTIVE_WEAKENING_INNER_MULT = REACTIVE_R_CUT_MULT - REACTIVE_WEAKENING_DISTANCE_MULT
+CURVE_FIGSIZE = (3.3, 2.0)
+SELECTED_REACTIVE_CURVE_FIGSIZE = (3.3, 2.0)
+SELECTED_REACTIVE_EPSILON = 18.0
+SELECTED_REACTIVE_THIRD_BEAD_DISTANCES_SIGMA = (1.5, 1.4, 1.3)
 
 # Ordered for optimizer vectors / CSV columns.
 PARAM_ORDER = (
@@ -691,8 +693,9 @@ def make_colored_curve_plot(
     curves: np.ndarray,
     sigma: float,
     model_label: str,
+    figsize: tuple[float, float] = CURVE_FIGSIZE,
 ) -> None:
-    fig, ax = plt.subplots(figsize=(4.0, 1.5), dpi=300)
+    fig, ax = uplt.subplots(figsize=figsize, dpi=300)
     plot_r_min = 0.95 * sigma
     plot_r_max = 1.5 * sigma
     plot_mask = (r >= plot_r_min) & (r <= plot_r_max)
@@ -704,29 +707,50 @@ def make_colored_curve_plot(
     curves_plot = curves[:, plot_mask]
 
     scaled_distances = third_distances / sigma
-    cmap = plt.get_cmap("plasma_r")
-    norm = matplotlib.colors.Normalize(
-        vmin=float(np.min(scaled_distances)),
-        vmax=float(np.max(scaled_distances)),
-    )
+    cmap = uplt.Colormap("plasma_r")
+    colorbar_min = float(np.min(scaled_distances))
+    colorbar_max = float(np.max(scaled_distances))
+    colorbar_range = colorbar_max - colorbar_min
 
     for idx, dist in enumerate(scaled_distances):
-        color = cmap(norm(float(dist)))
+        if colorbar_range > 0.0:
+            color_value = (float(dist) - colorbar_min) / colorbar_range
+        else:
+            color_value = 0.5
+        color = cmap(color_value)
         ax.plot(r_plot, curves_plot[idx], color=color, linewidth=1.3)
 
-    ax.set_xlabel("r")
-    ax.set_ylabel("U(r)")
-    ax.set_ylim(-14.0, 14.0)
-    ax.grid(alpha=0.25, linewidth=0.5)
+    ax.format(
+        xlabel=r"$r_\mathrm{AB}/\sigma$",
+        ylabel=r"$U(r_\mathrm{AB})$",
+        xlim=(plot_r_min, plot_r_max),
+        ylim=(-14.0, 14.0),
+        xspineloc="both",
+        yspineloc="both",
+        xtickloc="both",
+        ytickloc="both",
+        tickdir="in",
+        grid=False,
+    )
+    ax.tick_params(axis="both", labelsize=8)
+    ax.xaxis.label.set_size(10)
+    ax.yaxis.label.set_size(10)
+    ax.yaxis.label.set_rotation(90)
+    ax.yaxis.label.set_horizontalalignment("center")
+    ax.yaxis.label.set_verticalalignment("bottom")
 
-    sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
-    sm.set_array([])
-    cbar = fig.colorbar(sm, ax=ax)
-    cbar.set_label(r"$\frac{r_3}{\sigma}$")
+    cbar = fig.colorbar(
+        cmap,
+        loc="r",
+        vmin=colorbar_min,
+        vmax=colorbar_max,
+    )
+    cbar.minorticks_off()
+    cbar.ax.tick_params(axis="both", labelsize=8)
+    cbar.ax.set_title(r"$r_\mathrm{AC}/\sigma$", fontsize=10, pad=3)
 
-    fig.tight_layout()
     fig.savefig(path)
-    plt.close(fig)
+    uplt.close(fig)
 
 
 def main() -> None:
@@ -846,6 +870,51 @@ def main() -> None:
             f"epsilon={epsilon:g} wrote pre-fit ReactiveLJ curves: {reactive_plot_path}",
             flush=True,
         )
+        if math.isclose(
+            epsilon,
+            SELECTED_REACTIVE_EPSILON,
+            rel_tol=0.0,
+            abs_tol=1e-12,
+        ):
+            selected_third_distances = (
+                np.asarray(
+                    SELECTED_REACTIVE_THIRD_BEAD_DISTANCES_SIGMA,
+                    dtype=np.float64,
+                )
+                * cfg.sigma
+            )
+            selected_target_curves = reactive_curve_set(
+                r_grid,
+                epsilon=epsilon,
+                cfg=cfg,
+                third_distances=selected_third_distances,
+            )
+            selected_distances_label = "_".join(
+                f"{value:g}".replace(".", "p")
+                for value in SELECTED_REACTIVE_THIRD_BEAD_DISTANCES_SIGMA
+            )
+            selected_reactive_plot_path = os.path.join(
+                plot_dir,
+                (
+                    f"reactive_lj_curves_eps_{epsilon:g}_"
+                    f"r_ac_{selected_distances_label}.svg"
+                ),
+            )
+            make_colored_curve_plot(
+                path=selected_reactive_plot_path,
+                epsilon=epsilon,
+                r=r_grid,
+                third_distances=selected_third_distances,
+                curves=selected_target_curves,
+                sigma=cfg.sigma,
+                model_label="ReactiveLJ",
+                figsize=SELECTED_REACTIVE_CURVE_FIGSIZE,
+            )
+            print(
+                f"epsilon={epsilon:g} wrote selected ReactiveLJ curves: "
+                f"{selected_reactive_plot_path}",
+                flush=True,
+            )
 
         default_params = build_default_params(
             epsilon=epsilon,

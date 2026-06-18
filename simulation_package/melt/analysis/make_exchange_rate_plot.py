@@ -16,22 +16,34 @@ Path(os.environ["MPLCONFIGDIR"]).mkdir(parents=True, exist_ok=True)
 Path(os.environ["XDG_CACHE_HOME"]).mkdir(parents=True, exist_ok=True)
 
 import matplotlib
+import matplotlib.ticker as mticker
 import numpy as np
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
+import ultraplot as uplt
 
 
-DEFAULT_FIGSIZE = (3.3, 2)
-DEFAULT_DPI = 1000
+POINTS_PER_INCH = 72.0
+FIGURE_WIDTH_PT = 237.6
+FIGURE_HEIGHT_PT = 144.0
+AXES_LEFT_PT = 35.369779
+AXES_BOTTOM_PT = 27.66
+AXES_WIDTH_PT = 197.730221
+AXES_HEIGHT_PT = 108.9
+DEFAULT_FIGSIZE = (
+    FIGURE_WIDTH_PT / POINTS_PER_INCH,
+    FIGURE_HEIGHT_PT / POINTS_PER_INCH,
+)
+DEFAULT_DPI = 600
 DEFAULT_TICK_FONTSIZE = 8
 DEFAULT_LABEL_FONTSIZE = 10
-DEFAULT_LEGEND_FONTSIZE = 10
+DEFAULT_LEGEND_FONTSIZE = 8
 DEFAULT_OUTPUT_NAME = "exchange_rate_comparison_vs_epsilon.svg"
 LEGACY_OUTPUT_NAMES = ("exchange_rate_comparison_vs_epsilon.png",)
 ASSOCIATIVE_COLOR = "#e77500"
 PASSIVE_COLOR = "#121212"
 DUMP_INTERVAL_TAU_LJ = 1000.0
+DEFAULT_TAU_R0 = 4041.0
 
 
 def parse_args() -> argparse.Namespace:
@@ -99,8 +111,25 @@ def remove_legacy_outputs(output_path: Path) -> None:
             candidate.unlink()
 
 
+def set_target_axes_position(ax) -> None:
+    ax.set_position(
+        [
+            AXES_LEFT_PT / FIGURE_WIDTH_PT,
+            AXES_BOTTOM_PT / FIGURE_HEIGHT_PT,
+            AXES_WIDTH_PT / FIGURE_WIDTH_PT,
+            AXES_HEIGHT_PT / FIGURE_HEIGHT_PT,
+        ]
+    )
+
+
 def epsilon_category_labels(epsilon: np.ndarray) -> list[str]:
-    return ["None" if np.isclose(value, 0.0) else f"{value:g}" for value in epsilon]
+    labels: list[str] = []
+    for value in np.asarray(epsilon, dtype=np.float64):
+        if np.isclose(value, 0.0, rtol=0.0, atol=1.0e-12):
+            labels.append("None")
+        else:
+            labels.append(f"{value:g}")
+    return labels
 
 
 def write_exchange_rate_plot(
@@ -113,52 +142,82 @@ def write_exchange_rate_plot(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     remove_legacy_outputs(output_path)
 
-    fig, ax = plt.subplots(figsize=DEFAULT_FIGSIZE, dpi=DEFAULT_DPI)
+    epsilon = np.asarray(epsilon, dtype=np.float64)
+    turnover_assoc = np.asarray(turnover_assoc, dtype=np.float64)
+    turnover_dissoc = np.asarray(turnover_dissoc, dtype=np.float64)
+    normalization_factor = DUMP_INTERVAL_TAU_LJ / DEFAULT_TAU_R0
+    assoc_normalized = turnover_assoc / normalization_factor
+    dissoc_normalized = turnover_dissoc / normalization_factor
     x = np.arange(epsilon.size, dtype=np.float64)
     width = 0.36
-    all_values = np.concatenate((turnover_assoc, turnover_dissoc))
+    all_values = np.concatenate((assoc_normalized, dissoc_normalized))
     positive_values = all_values[np.isfinite(all_values) & (all_values > 0.0)]
+    if positive_values.size == 0:
+        raise ValueError("Exchange-rate bars require at least one finite positive value.")
     if positive_values.size != all_values.size:
-        raise ValueError("Exchange-rate bars require finite positive values on a log axis")
-    ax.set_yscale("log")
-    ax.plot(np.arange(positive_values.size), positive_values, alpha=0.0, linewidth=0.0)
-    ax.relim()
-    ax.autoscale_view()
-    y_min, y_max = ax.get_ylim()
-    ax.cla()
+        raise ValueError("Exchange-rate bars require finite positive values on a log axis.")
+    y_floor = 10.0 ** np.floor(np.log10(np.min(positive_values)))
+    y_ceiling = 10.0 ** np.ceil(np.log10(np.max(positive_values) * 1.2))
+    assoc_bottoms = np.full(assoc_normalized.shape, y_floor, dtype=np.float64)
+    dissoc_bottoms = np.full(dissoc_normalized.shape, y_floor, dtype=np.float64)
+
+    fig, ax = uplt.subplots(figsize=DEFAULT_FIGSIZE, dpi=DEFAULT_DPI, tight=False)
+    set_target_axes_position(ax)
     ax.bar(
         x - width / 2.0,
-        turnover_assoc - y_min,
+        assoc_normalized - assoc_bottoms,
         width=width,
-        bottom=y_min,
+        bottom=assoc_bottoms,
         color=ASSOCIATIVE_COLOR,
-        edgecolor=PASSIVE_COLOR,
-        linewidth=0.7,
+        edgecolor="black",
+        linewidth=0.5,
         label="assoc.",
+        zorder=3,
     )
     ax.bar(
         x + width / 2.0,
-        turnover_dissoc - y_min,
+        dissoc_normalized - dissoc_bottoms,
         width=width,
-        bottom=y_min,
+        bottom=dissoc_bottoms,
         color=PASSIVE_COLOR,
-        edgecolor=PASSIVE_COLOR,
-        linewidth=0.7,
+        edgecolor="black",
+        linewidth=0.5,
         label="dissoc.",
+        zorder=3,
     )
     ax.set_yscale("log")
-    ax.set_ylim(y_min, y_max)
-    ax.set_xlabel(r"$\varepsilon_\mathrm{reactiveLJ}$", fontsize=DEFAULT_LABEL_FONTSIZE)
-    ax.set_ylabel(r"$\nu_\mathrm{app}$", fontsize=DEFAULT_LABEL_FONTSIZE)
+    ax.set_ylim(y_floor, y_ceiling)
+    ax.yaxis.set_major_formatter(mticker.LogFormatterSciNotation(base=10.0))
+    ax.set_xlabel(r"$\varepsilon_\mathrm{RLJ}/\varepsilon_0$", fontsize=DEFAULT_LABEL_FONTSIZE)
+    ax.set_ylabel(
+        r"$\nu_\mathrm{app} / (\Delta t / \tau_R^{(0)})$",
+        fontsize=DEFAULT_LABEL_FONTSIZE,
+    )
     ax.set_xticks(x)
-    ax.set_xticklabels(epsilon_category_labels(epsilon))
+    ax.set_xticklabels(epsilon_category_labels(epsilon), fontsize=DEFAULT_TICK_FONTSIZE)
     ax.set_xlim(-0.5, epsilon.size - 0.5)
-    ax.tick_params(axis="both", which="both", labelsize=DEFAULT_TICK_FONTSIZE)
-    ax.legend(frameon=False, fontsize=DEFAULT_LEGEND_FONTSIZE)
-    ax.grid(alpha=0.2, axis="y")
-    fig.tight_layout()
+    ax.xaxis.set_minor_locator(mticker.NullLocator())
+    ax.format(
+        xspineloc="both",
+        yspineloc="both",
+        xtickloc="both",
+        ytickloc="both",
+        tickdir="in",
+        grid=False,
+    )
+    ax.tick_params(axis="both", labelsize=DEFAULT_TICK_FONTSIZE)
+    ax.legend(
+        frameon=False,
+        fontsize=DEFAULT_LEGEND_FONTSIZE,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0.98),
+        ncols=2,
+        handletextpad=0.5,
+        columnspacing=1.0,
+    )
+    set_target_axes_position(ax)
     fig.savefig(output_path)
-    plt.close(fig)
+    uplt.close(fig)
 
     print(f"Wrote exchange-rate comparison plot to {output_path}", flush=True)
 

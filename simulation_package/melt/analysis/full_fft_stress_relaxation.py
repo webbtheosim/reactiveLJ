@@ -21,13 +21,20 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, List, Set, Tuple
 
+USER_TMP_DIR = Path("/tmp") / f"reactive_lj_plot_cache_{os.getuid()}"
+USER_TMP_DIR.mkdir(parents=True, exist_ok=True)
+os.environ.setdefault("MPLCONFIGDIR", str(USER_TMP_DIR / "matplotlib"))
+os.environ.setdefault("XDG_CACHE_HOME", str(USER_TMP_DIR / "xdg"))
+Path(os.environ["MPLCONFIGDIR"]).mkdir(parents=True, exist_ok=True)
+Path(os.environ["XDG_CACHE_HOME"]).mkdir(parents=True, exist_ok=True)
+
 import matplotlib
 import numpy as np
 import gsd.hoomd
 from joblib import Parallel, delayed
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
+import ultraplot as uplt
 
 
 FALLBACK_TAU_R0 = 4041.0
@@ -37,6 +44,20 @@ DEFAULT_STRESS_MAX_RUNTIME_FRACTION = 1.0 / 3.0
 DEFAULT_EXTENSION_STITCH_TIME = 25.0
 PLOT_MIN_G = 1.0e-3
 DEFAULT_WEAKENING_EXPONENT = 4.0
+POINTS_PER_INCH = 72.0
+FIGURE_WIDTH_PT = 237.6
+FIGURE_HEIGHT_PT = 144.0
+AXES_LEFT_PT = 35.369779
+AXES_BOTTOM_PT = 27.66
+AXES_WIDTH_PT = 197.730221
+AXES_HEIGHT_PT = 108.9
+DEFAULT_FIGSIZE = (
+    FIGURE_WIDTH_PT / POINTS_PER_INCH,
+    FIGURE_HEIGHT_PT / POINTS_PER_INCH,
+)
+DEFAULT_DPI = 1000
+DEFAULT_TICK_FONTSIZE = 8
+DEFAULT_LABEL_FONTSIZE = 10
 ConditionKey = Tuple[float, float]
 
 # Match the Liu/O'Connor Green-Kubo estimator: average only shear components
@@ -198,6 +219,24 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=FALLBACK_TAU_R0,
         help="Reference tau_R^0 used to scale the plot x-axis.",
+    )
+    parser.add_argument(
+        "--plot-x-min-time",
+        type=float,
+        default=None,
+        help=(
+            "Optional left x-axis limit in tau_LJ units. When omitted, use the "
+            "minimum positive lag available in the plotted stress curves."
+        ),
+    )
+    parser.add_argument(
+        "--plot-x-max-tau-r0",
+        type=float,
+        default=MAX_ANALYSIS_LAG_TAU_R0,
+        help=(
+            "Right x-axis limit in tau/tau_R^0 units. Default keeps the current "
+            f"{MAX_ANALYSIS_LAG_TAU_R0:g} tau_R^0 range."
+        ),
     )
     parser.add_argument(
         "--min-plot-g",
@@ -858,6 +897,8 @@ def compute_shared_time_lag_xlim(
     g_time_by_condition: Dict[ConditionKey, np.ndarray],
     g_mean_by_condition: Dict[ConditionKey, np.ndarray],
     tau_r0: float,
+    plot_x_min_time: float | None = None,
+    plot_x_max_tau_r0: float = MAX_ANALYSIS_LAG_TAU_R0,
 ) -> Tuple[float, float] | None:
     if not np.isfinite(tau_r0) or tau_r0 <= 0.0:
         tau_r0 = FALLBACK_TAU_R0
@@ -875,9 +916,36 @@ def compute_shared_time_lag_xlim(
         if np.any(finite_lag):
             positive_xmins.append(float(np.min(x[finite_lag])))
 
-    if not positive_xmins:
+    if plot_x_min_time is not None:
+        x_min = float(plot_x_min_time) / tau_r0
+        if not np.isfinite(x_min) or x_min <= 0.0:
+            return None
+    elif positive_xmins:
+        x_min = min(positive_xmins)
+    else:
         return None
-    return min(positive_xmins), MAX_ANALYSIS_LAG_TAU_R0
+
+    x_max = float(plot_x_max_tau_r0)
+    if not np.isfinite(x_max) or x_max <= x_min:
+        x_max = MAX_ANALYSIS_LAG_TAU_R0
+    return x_min, x_max
+
+
+def set_target_axes_position(ax) -> None:
+    ax.set_position(
+        [
+            AXES_LEFT_PT / FIGURE_WIDTH_PT,
+            AXES_BOTTOM_PT / FIGURE_HEIGHT_PT,
+            AXES_WIDTH_PT / FIGURE_WIDTH_PT,
+            AXES_HEIGHT_PT / FIGURE_HEIGHT_PT,
+        ]
+    )
+
+
+def format_epsilon_legend_value(epsilon: float) -> str:
+    if math.isclose(epsilon, 0.0, rel_tol=0.0, abs_tol=1.0e-12):
+        return r"\mathrm{None}"
+    return f"{epsilon:g}"
 
 
 def format_condition_label(
@@ -890,8 +958,11 @@ def format_condition_label(
     if len(epsilon_values) == 1 and len(weakening_values) > 1:
         return f"p={weakening_exponent:g}"
     if len(weakening_values) == 1:
-        return rf"$\varepsilon_\mathrm{{RLJ}}={epsilon:g}$"
-    return rf"$\varepsilon_\mathrm{{RLJ}}={epsilon:g}$, p={weakening_exponent:g}"
+        return rf"$\varepsilon_\mathrm{{RLJ}}={format_epsilon_legend_value(epsilon)}$"
+    return (
+        rf"$\varepsilon_\mathrm{{RLJ}}={format_epsilon_legend_value(epsilon)}$, "
+        rf"p={weakening_exponent:g}"
+    )
 
 
 def condition_dir_name(condition: ConditionKey, include_p: bool) -> str:
@@ -1163,12 +1234,14 @@ def write_stress_modulus_by_epsilon_plot(
         return
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    cmap = plt.get_cmap(colormap, len(series))
-    fig, ax = plt.subplots(figsize=(3.3, 1.5))
+    cmap = matplotlib.colormaps.get_cmap(colormap)
+    color_positions = np.linspace(0.0, 1.0, max(1, len(series)))
+    fig, ax = uplt.subplots(figsize=DEFAULT_FIGSIZE, dpi=DEFAULT_DPI, tight=False)
+    set_target_axes_position(ax)
     plot_conditions = [condition for condition, _, _ in series]
     plotted_any = False
     for idx, (condition, lag_time, mean) in enumerate(series):
-        color = cmap(idx)
+        color = cmap(color_positions[idx])
         x = lag_time / tau_r0
         y = mean
         valid = np.isfinite(x) & np.isfinite(y) & (x > 0.0) & (y >= min_plot_g)
@@ -1192,19 +1265,33 @@ def write_stress_modulus_by_epsilon_plot(
         plotted_any = True
 
     if not plotted_any:
-        plt.close(fig)
+        uplt.close(fig)
         return
 
     ax.set_xscale("log")
     ax.set_yscale("log")
-    ax.set_xlabel(r"$\tau / \tau_R^0$", fontsize=10)
-    ax.set_ylabel("G", fontsize=10)
-    ax.tick_params(axis="both", which="both", labelsize=8)
+    ax.set_xlabel(r"$\tau / \tau_R^{(0)}$", fontsize=DEFAULT_LABEL_FONTSIZE)
+    ax.set_ylabel(r"$G$", fontsize=DEFAULT_LABEL_FONTSIZE)
     if x_limits is not None:
         ax.set_xlim(left=x_limits[0], right=x_limits[1])
-    ax.legend(frameon=False, ncol=2, fontsize=8)
-    fig.savefig(path, dpi=1000)
-    plt.close(fig)
+    ax.format(
+        xspineloc="both",
+        yspineloc="both",
+        ytickloc="both",
+        tickdir="in",
+        grid=False,
+    )
+    ax.tick_params(
+        axis="both",
+        which="both",
+        top=True,
+        right=True,
+        labelsize=DEFAULT_TICK_FONTSIZE,
+    )
+    ax.legend(frameon=False, ncol=2, fontsize=DEFAULT_TICK_FONTSIZE)
+    set_target_axes_position(ax)
+    fig.savefig(path)
+    uplt.close(fig)
 
 
 def write_all_replicate_stress_modulus_plot(
@@ -1234,13 +1321,15 @@ def write_all_replicate_stress_modulus_plot(
         return
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    cmap = plt.get_cmap(colormap, max(1, len(condition_values)))
+    cmap = matplotlib.colormaps.get_cmap(colormap)
+    color_positions = np.linspace(0.0, 1.0, max(1, len(condition_values)))
     color_by_condition = {
-        condition: cmap(idx)
+        condition: cmap(color_positions[idx])
         for idx, condition in enumerate(condition_values)
     }
 
-    fig, ax = plt.subplots(figsize=(3.3, 1.5))
+    fig, ax = uplt.subplots(figsize=DEFAULT_FIGSIZE, dpi=DEFAULT_DPI, tight=False)
+    set_target_axes_position(ax)
     labeled_conditions = set()
     plotted_any = False
     for result in sorted_results:
@@ -1295,19 +1384,33 @@ def write_all_replicate_stress_modulus_plot(
         plotted_any = True
 
     if not plotted_any:
-        plt.close(fig)
+        uplt.close(fig)
         return
 
     ax.set_xscale("log")
     ax.set_yscale("log")
-    ax.set_xlabel(r"$\tau / \tau_R^0$", fontsize=10)
-    ax.set_ylabel("G", fontsize=10)
-    ax.tick_params(axis="both", which="both", labelsize=8)
+    ax.set_xlabel(r"$\tau / \tau_R^{(0)}$", fontsize=DEFAULT_LABEL_FONTSIZE)
+    ax.set_ylabel(r"$G$", fontsize=DEFAULT_LABEL_FONTSIZE)
     if x_limits is not None:
         ax.set_xlim(left=x_limits[0], right=x_limits[1])
-    ax.legend(frameon=False, ncol=2, fontsize=8)
-    fig.savefig(path, dpi=1000)
-    plt.close(fig)
+    ax.format(
+        xspineloc="both",
+        yspineloc="both",
+        ytickloc="both",
+        tickdir="in",
+        grid=False,
+    )
+    ax.tick_params(
+        axis="both",
+        which="both",
+        top=True,
+        right=True,
+        labelsize=DEFAULT_TICK_FONTSIZE,
+    )
+    ax.legend(frameon=False, ncol=2, fontsize=DEFAULT_TICK_FONTSIZE)
+    set_target_axes_position(ax)
+    fig.savefig(path)
+    uplt.close(fig)
 
 
 def write_summary(
@@ -1375,6 +1478,10 @@ def main() -> None:
         raise RuntimeError("--max-replicates-per-epsilon must be >= 0.")
     if args.min_plot_g <= 0.0:
         raise RuntimeError("--min-plot-g must be > 0 for log-scale plotting.")
+    if args.plot_x_min_time is not None and args.plot_x_min_time <= 0.0:
+        raise RuntimeError("--plot-x-min-time must be > 0 when provided.")
+    if args.plot_x_max_tau_r0 <= 0.0:
+        raise RuntimeError("--plot-x-max-tau-r0 must be > 0.")
     if args.plot_linear_lags < 0:
         raise RuntimeError("--plot-linear-lags must be >= 0.")
     if args.plot_bins_per_decade <= 0.0:
@@ -1515,6 +1622,8 @@ def main() -> None:
         g_time_by_condition,
         g_mean_by_condition,
         float(args.tau_r0),
+        plot_x_min_time=args.plot_x_min_time,
+        plot_x_max_tau_r0=args.plot_x_max_tau_r0,
     )
 
     for condition, result in aggregated.items():

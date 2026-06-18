@@ -16,6 +16,8 @@ from collections import defaultdict
 from typing import Dict, List, Set, Tuple
 
 import matplotlib
+import matplotlib.colors as mcolors
+import matplotlib.ticker as mticker
 import numpy as np
 import freud
 import gsd.hoomd
@@ -23,6 +25,7 @@ from joblib import Parallel, delayed
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import ultraplot as uplt
 
 # Ensure local imports resolve when running from repo root.
 sys.path.append(os.path.dirname(__file__))
@@ -32,6 +35,13 @@ MAX_ANALYSIS_LAG_TAU_R0 = 1000.0
 MAX_ANALYSIS_LAG_TIME = FALLBACK_TAU_R0 * MAX_ANALYSIS_LAG_TAU_R0
 DEFAULT_STRESS_MAX_RUNTIME_FRACTION = 1.0 / 3.0
 DEFAULT_WEAKENING_EXPONENT = 4.0
+POINTS_PER_INCH = 72.0
+STANDARD_FIGURE_WIDTH_PT = 237.6
+STANDARD_FIGURE_HEIGHT_PT = 144.0
+STANDARD_AXES_LEFT_PT = 35.369779
+STANDARD_AXES_BOTTOM_PT = 27.66
+STANDARD_AXES_WIDTH_PT = 197.730221
+STANDARD_AXES_HEIGHT_PT = 108.9
 BOND_TAU_EPSILON_PLOT = "sticky_bond_lifetime_vs_epsilon.svg"
 MIN_RESOLVED_BOND_TAU_EPSILON = 12.0
 LEGACY_BOND_TAU_PLOT_FILES = (
@@ -1708,6 +1718,27 @@ def write_cluster_distribution_by_epsilon_plot(
     epsilon_values: List[float],
     cluster_distribution_by_eps: Dict[float, np.ndarray],
 ) -> None:
+    def set_standard_axes_position(ax) -> None:
+        ax.set_position(
+            [
+                STANDARD_AXES_LEFT_PT / STANDARD_FIGURE_WIDTH_PT,
+                STANDARD_AXES_BOTTOM_PT / STANDARD_FIGURE_HEIGHT_PT,
+                STANDARD_AXES_WIDTH_PT / STANDARD_FIGURE_WIDTH_PT,
+                STANDARD_AXES_HEIGHT_PT / STANDARD_FIGURE_HEIGHT_PT,
+            ]
+        )
+
+    def format_rlj_legend_label(epsilon: float) -> str:
+        if np.isclose(float(epsilon), 0.0, rtol=0.0, atol=1.0e-12):
+            return r"$\varepsilon_\mathrm{RLJ}=\mathrm{None}$"
+        return rf"$\varepsilon_\mathrm{{RLJ}}={float(epsilon):g}$"
+
+    def align_terminal_log_xtick_labels(fig, ax) -> None:
+        fig.canvas.draw()
+        labels = [label for label in ax.get_xticklabels() if label.get_text()]
+        if labels:
+            labels[-1].set_ha("right")
+
     series = []
     for eps in epsilon_values:
         distribution = cluster_distribution_by_eps.get(eps)
@@ -1726,18 +1757,26 @@ def write_cluster_distribution_by_epsilon_plot(
         return
 
     cmap = plt.get_cmap("plasma", len(series))
-    fig, ax = plt.subplots(figsize=(3.3, 2.0))
+    fig, ax = uplt.subplots(
+        figsize=(
+            STANDARD_FIGURE_WIDTH_PT / POINTS_PER_INCH,
+            STANDARD_FIGURE_HEIGHT_PT / POINTS_PER_INCH,
+        ),
+        dpi=600,
+        tight=False,
+    )
+    set_standard_axes_position(ax)
     max_x = 1.0
     max_y = 1.0e-6
     min_y = np.inf
     for idx, (eps, cluster_size, prob) in enumerate(series):
-        color = cmap(idx)
+        color = mcolors.to_hex(cmap(idx))
         ax.scatter(
             cluster_size,
             prob,
             s=8.0,
             color=color,
-            label=f"eps={eps:g}",
+            label=format_rlj_legend_label(eps),
             linewidths=0.0,
         )
         max_x = max(max_x, float(np.max(cluster_size)))
@@ -1748,15 +1787,23 @@ def write_cluster_distribution_by_epsilon_plot(
     ax.set_yscale("log")
     ax.set_xlabel("M", fontsize=10)
     ax.set_ylabel("P(M)", fontsize=10)
+    ax.yaxis.set_major_formatter(mticker.LogFormatterSciNotation(base=10.0))
     ax.tick_params(axis="both", which="both", labelsize=8)
     ax.set_xlim(left=1.0, right=max_x * 1.08)
     if np.isfinite(min_y) and min_y > 0.0:
         ax.set_ylim(bottom=min_y * 0.8, top=max_y * 1.2)
-    ax.grid(False, which="both")
+    ax.format(
+        xspineloc="both",
+        yspineloc="both",
+        xtickloc="both",
+        ytickloc="both",
+        tickdir="in",
+        grid=False,
+    )
     ax.legend(frameon=False, fontsize=7, ncol=1)
-    fig.tight_layout()
-    fig.savefig(path, dpi=1000)
-    plt.close(fig)
+    set_standard_axes_position(ax)
+    fig.savefig(path)
+    uplt.close(fig)
 
 
 def write_scalar_violin_vs_epsilon_plot(
@@ -2058,6 +2105,21 @@ def write_msd_vs_epsilon_plot(
     tau_r0: float,
     x_limits: Tuple[float, float] | None = None,
 ) -> None:
+    def set_standard_axes_position(ax) -> None:
+        ax.set_position(
+            [
+                STANDARD_AXES_LEFT_PT / STANDARD_FIGURE_WIDTH_PT,
+                STANDARD_AXES_BOTTOM_PT / STANDARD_FIGURE_HEIGHT_PT,
+                STANDARD_AXES_WIDTH_PT / STANDARD_FIGURE_WIDTH_PT,
+                STANDARD_AXES_HEIGHT_PT / STANDARD_FIGURE_HEIGHT_PT,
+            ]
+        )
+
+    def format_rlj_legend_label(epsilon: float) -> str:
+        if np.isclose(float(epsilon), 0.0, rtol=0.0, atol=1.0e-12):
+            return r"$\varepsilon_\mathrm{RLJ}=\mathrm{None}$"
+        return rf"$\varepsilon_\mathrm{{RLJ}}={float(epsilon):g}$"
+
     if not np.isfinite(tau_r0) or tau_r0 <= 0.0:
         tau_r0 = FALLBACK_TAU_R0
 
@@ -2082,20 +2144,37 @@ def write_msd_vs_epsilon_plot(
         return
 
     cmap = plt.get_cmap("plasma", len(series))
-    fig, ax = plt.subplots(figsize=(3.3, 1.5))
+    fig, ax = uplt.subplots(
+        figsize=(
+            STANDARD_FIGURE_WIDTH_PT / POINTS_PER_INCH,
+            STANDARD_FIGURE_HEIGHT_PT / POINTS_PER_INCH,
+        ),
+        dpi=1000,
+        tight=False,
+    )
+    set_standard_axes_position(ax)
     for idx, (eps, x, y) in enumerate(series):
-        ax.plot(x, y, color=cmap(idx), lw=2.0, label=f"eps={eps:g}")
+        ax.plot(x, y, color=cmap(idx), lw=2.0, label=format_rlj_legend_label(eps))
 
     ax.set_xscale("log")
     ax.set_yscale("log")
     ax.set_xlabel(r"$\tau / \tau_R^0$", fontsize=10)
     ax.set_ylabel("MSD", fontsize=10)
-    ax.tick_params(axis="both", which="both", labelsize=8)
     if x_limits is not None:
         ax.set_xlim(left=x_limits[0], right=x_limits[1])
+    ax.format(
+        xspineloc="both",
+        yspineloc="both",
+        ytickloc="both",
+        tickdir="in",
+        grid=False,
+    )
+    ax.tick_params(axis="both", which="both", top=True, right=True, labelsize=8)
     ax.legend(frameon=False, ncol=2, fontsize=8)
-    fig.savefig(path, dpi=1000)
-    plt.close(fig)
+    align_terminal_log_xtick_labels(fig, ax)
+    set_standard_axes_position(ax)
+    fig.savefig(path)
+    uplt.close(fig)
 
 
 def write_stress_modulus_by_epsilon_plot(
@@ -2108,6 +2187,12 @@ def write_stress_modulus_by_epsilon_plot(
 ) -> None:
     if not np.isfinite(tau_r0) or tau_r0 <= 0.0:
         tau_r0 = FALLBACK_TAU_R0
+
+    def align_terminal_log_xtick_labels(fig, ax) -> None:
+        fig.canvas.draw()
+        labels = [label for label in ax.get_xticklabels() if label.get_text()]
+        if labels:
+            labels[-1].set_ha("right")
 
     series = []
     for eps in epsilon_values:
@@ -2156,6 +2241,7 @@ def write_stress_modulus_by_epsilon_plot(
     if x_limits is not None:
         ax.set_xlim(left=x_limits[0], right=x_limits[1])
     ax.legend(frameon=False, ncol=2, fontsize=8)
+    align_terminal_log_xtick_labels(fig, ax)
     fig.savefig(path, dpi=1000)
     plt.close(fig)
 

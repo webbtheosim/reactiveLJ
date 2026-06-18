@@ -5,7 +5,7 @@
 #SBATCH --time=01:02:00
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=1G
-#SBATCH --array=0-39%24
+#SBATCH --array=0-39%5
 #SBATCH --output=/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/melt/tersoff_comparison/logs/generate_tersoff_data_%A_%a.out
 
 # NOTE:
@@ -29,6 +29,7 @@ TERSOFF_DIR="$(cd "${TERSOFF_DIR}" && pwd)"
 WORK_DIR="$(cd "${TERSOFF_DIR}/.." && pwd)"
 cd "${WORK_DIR}"
 mkdir -p "${TERSOFF_DIR}/logs"
+source "${TERSOFF_DIR}/slurm_resource_logging.sh"
 
 EPSILONS=(6 12 15 18)
 N_REP=${N_REP:-10}
@@ -52,7 +53,9 @@ REP_INDEX=$(( TASK_ID % N_REP ))
 EPS=${EPSILONS[$EPS_INDEX]}
 REP=$(( REP_INDEX + 1 ))
 
-python "${TERSOFF_DIR}/generate_tersoff_data.py" \
+resource_logging_init "${TERSOFF_DIR}/logs" "tersoff" "${EPS}" "${REP}"
+
+resource_run_command python "${TERSOFF_DIR}/generate_tersoff_data.py" \
     --epsilon "${EPS}" \
     --replicate "${REP}" \
     --tersoff-params-csv "${TERSOFF_PARAMS_CSV}" \

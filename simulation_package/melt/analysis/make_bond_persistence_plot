@@ -26,12 +26,13 @@ os.environ.setdefault(
 )
 
 import matplotlib
+import matplotlib.ticker as mticker
 import numpy as np
 import gsd.hoomd
 from joblib import Parallel, delayed
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
+import ultraplot as uplt
 
 
 ANALYSIS_DIR = Path(__file__).resolve().parent
@@ -59,6 +60,13 @@ BAR_COLOR = "#e77500"
 EDGE_COLOR = "#121212"
 FIGSIZE = (2.2, 4.0 / 3.0)
 FIG_DPI = 1000
+POINTS_PER_INCH = 72.0
+FIGURE_WIDTH_PT = 158.4
+FIGURE_HEIGHT_PT = 96.0
+AXES_LEFT_PT = 50.999753
+AXES_BOTTOM_PT = 31.924
+AXES_WIDTH_PT = 103.900247
+AXES_HEIGHT_PT = 57.5412
 ConditionKey = Tuple[float, float]
 
 
@@ -479,6 +487,16 @@ def write_bar_plot(
     selected_conditions: Set[ConditionKey],
     results: List[TauResult],
 ) -> None:
+    def set_target_axes_position(ax) -> None:
+        ax.set_position(
+            [
+                AXES_LEFT_PT / FIGURE_WIDTH_PT,
+                AXES_BOTTOM_PT / FIGURE_HEIGHT_PT,
+                AXES_WIDTH_PT / FIGURE_WIDTH_PT,
+                AXES_HEIGHT_PT / FIGURE_HEIGHT_PT,
+            ]
+        )
+
     by_condition: Dict[ConditionKey, List[TauResult]] = defaultdict(list)
     for result in results:
         by_condition[(result.epsilon, result.weakening_exponent)].append(result)
@@ -513,7 +531,12 @@ def write_bar_plot(
     y_axis_max = 10.0 ** np.ceil(np.log10(y_max_data))
     bar_heights = mean_arr - y_axis_min
 
-    fig, ax = plt.subplots(figsize=FIGSIZE, dpi=FIG_DPI)
+    fig, ax = uplt.subplots(
+        figsize=(FIGURE_WIDTH_PT / POINTS_PER_INCH, FIGURE_HEIGHT_PT / POINTS_PER_INCH),
+        dpi=FIG_DPI,
+        tight=False,
+    )
+    set_target_axes_position(ax)
     ax.set_yscale("log")
     ax.bar(
         x,
@@ -541,16 +564,28 @@ def write_bar_plot(
     ax.set_ylabel(r"$\tau_s$", fontsize=10)
     ax.set_xticks(x)
     ax.set_xticklabels([f"{p:g}" for p in p_values])
+    ax.yaxis.set_major_locator(mticker.LogLocator(base=10.0, subs=(1.0,)))
+    ax.yaxis.set_minor_locator(mticker.LogLocator(base=10.0, subs=np.arange(2, 10)))
+    ax.yaxis.set_major_formatter(mticker.LogFormatterMathtext(base=10.0))
+    ax.yaxis.set_minor_formatter(mticker.NullFormatter())
+    ax.format(
+        xspineloc="both",
+        yspineloc="both",
+        xtickloc="both",
+        ytickloc="both",
+        tickdir="in",
+        grid=False,
+    )
     ax.tick_params(axis="both", which="both", labelsize=8)
-    ax.grid(axis="y", which="major", alpha=0.22, linewidth=0.5)
+    ax.tick_params(axis="x", which="both", length=0)
     ax.set_axisbelow(True)
     for spine in ax.spines.values():
         spine.set_color(EDGE_COLOR)
         spine.set_linewidth(0.8)
-    fig.tight_layout(pad=0.35)
+    set_target_axes_position(ax)
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, format="svg")
-    plt.close(fig)
+    uplt.close(fig)
 
 
 def main() -> None:

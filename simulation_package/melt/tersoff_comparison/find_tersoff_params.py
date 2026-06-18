@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fit Liu/O'Connor Tersoff parameters to ReactiveLJ targets."""
+"""Fit Liu/O'Connor Tersoff parameters to ReactiveLJ weakening targets."""
 
 from __future__ import annotations
 
@@ -20,14 +20,13 @@ import jax.numpy as jnp
 jax.config.update("jax_enable_x64", True)
 
 
-EPSILONS_DEFAULT = (3.0, 6.0, 9.0, 12.0, 15.0, 18.0)
+EPSILONS_DEFAULT = (6.0, 12.0, 15.0, 18.0)
 REACTIVE_R_CUT_MULT = 1.5
 REACTIVE_WEAKENING_DISTANCE_MULT = 0.2
 REACTIVE_WEAKENING_INNER_MULT = REACTIVE_R_CUT_MULT - REACTIVE_WEAKENING_DISTANCE_MULT
-CURVE_FIGSIZE = (3.3, 2.0)
-SELECTED_REACTIVE_CURVE_FIGSIZE = (3.3, 2.0)
-SELECTED_REACTIVE_EPSILON = 18.0
-SELECTED_REACTIVE_THIRD_BEAD_DISTANCES_SIGMA = (1.5, 1.4, 1.3)
+WEAKENING_PLOT_FIGSIZE = (3.3, 4.6)
+REACTIVE_COLOR = "#e77500"
+TERSOFF_COLOR = "#121212"
 
 # Ordered for optimizer vectors / CSV columns.
 PARAM_ORDER = (
@@ -76,8 +75,9 @@ class FitConfig:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Fit the Liu/O'Connor Tersoff subset to match ReactiveLJ pair curves "
-            "at fixed third-bead distances using Adam with JAX autodiff gradients."
+            "Fit the Liu/O'Connor Tersoff subset to match ReactiveLJ "
+            "minimum-energy weakening across fixed third-bead distances using "
+            "Adam with JAX autodiff gradients."
         )
     )
     parser.add_argument(
@@ -194,7 +194,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--plot-dir",
         default="plots",
-        help="Directory for overlay curve plots.",
+        help="Directory for weakening comparison plots.",
     )
     parser.add_argument(
         "--params-csv",
@@ -202,11 +202,6 @@ def parse_args() -> argparse.Namespace:
         help="Output CSV path for fitted parameters (defaults to <output-dir>/tersoff_fitted_params.csv).",
     )
     return parser.parse_args()
-
-
-def _safe_exp(x: np.ndarray) -> np.ndarray:
-    # Keep exponentials in a numerically stable range during optimization.
-    return np.exp(np.clip(x, -20.0, 20.0))
 
 
 def shifted_lj_energy(r: np.ndarray | float, epsilon: float, sigma: float, r_cut: float) -> np.ndarray:
@@ -342,6 +337,31 @@ def reactive_curve_set(
     return np.asarray(curves, dtype=np.float64)
 
 
+def reference_distance_index(third_distances: np.ndarray) -> int:
+    return int(np.argmax(third_distances))
+
+
+def minimum_energies(curves: np.ndarray) -> np.ndarray:
+    return np.min(curves, axis=1)
+
+
+def minimum_point_weakening(
+    curves: np.ndarray,
+    reference_index: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    minima = minimum_energies(curves)
+    return minima - minima[reference_index], minima
+
+
+def compute_weakening_rmse(
+    predicted: np.ndarray,
+    target: np.ndarray,
+    reference_index: int,
+) -> float:
+    mask = np.arange(target.size) != int(reference_index)
+    return float(np.sqrt(np.mean(np.square(predicted[mask] - target[mask]))))
+
+
 def compute_third_bead_distances(
     r_inner: float, r_outer: float, exponent: float, count: int
 ) -> np.ndarray:
@@ -350,62 +370,6 @@ def compute_third_bead_distances(
         return np.asarray([r_inner], dtype=np.float64)
     powered = np.linspace(r_outer**exponent, r_inner**exponent, count)
     return np.asarray(powered ** (1.0 / exponent), dtype=np.float64)
-
-
-def tersoff_cutoff(r: np.ndarray, r_cut: float, cutoff_thickness: float, alpha: float) -> np.ndarray:
-    r_inner = r_cut - cutoff_thickness
-    f_c = np.ones_like(r)
-
-    mask_outer = r >= r_cut
-    mask_shell = (r > r_inner) & (r < r_cut)
-
-    if np.any(mask_shell):
-        x = (r[mask_shell] - r_inner) / cutoff_thickness
-        x3 = x * x * x
-        denom = x3 - 1.0
-        f_c[mask_shell] = np.exp((-alpha) * x3 / denom)
-
-    f_c[mask_outer] = 0.0
-    return f_c
-
-
-def tersoff_surrogate_curve(
-    r: np.ndarray,
-    params: dict[str, float],
-    r_cut: float,
-    rik_distance: float,
-    surrogate_cos_theta: float,
-) -> np.ndarray:
-    a1 = params["A1"]
-    a2 = params["A2"]
-    lam1 = params["lambda1"]
-    lam2 = params["lambda2"]
-    dimer_r = params["dimer_r"]
-    cutoff_thickness = params["cutoff_thickness"]
-    alpha = params["alpha"]
-    n = params["n"]
-    gamma = params["gamma"]
-
-    f_c_ij = tersoff_cutoff(r, r_cut=r_cut, cutoff_thickness=cutoff_thickness, alpha=alpha)
-    f_r = a1 * _safe_exp(lam1 * (dimer_r - r))
-    f_a = a2 * _safe_exp(lam2 * (dimer_r - r))
-
-    rik = np.full_like(r, rik_distance)
-    f_c_ik = tersoff_cutoff(rik, r_cut=r_cut, cutoff_thickness=cutoff_thickness, alpha=alpha)
-
-    # Match LiuOConnorTersoffForceCompute: for one third bead, the directed
-    # bond-order coordination excluding the ij pair is zeta_ij = f_C(r_ik).
-    # The Liu/O'Connor subset has lambda3=0 and g(theta)=1.
-    del surrogate_cos_theta
-    zeta = np.maximum(f_c_ik, 0.0)
-    n_eff = max(n, 1e-6)
-    gamma_n = gamma**n_eff
-    zeta_n = np.power(np.where(zeta > 0.0, zeta, 1.0), n_eff)
-    bij_raw = np.power(1.0 + gamma_n * zeta_n, -0.5 / n_eff)
-    bij = np.where(zeta > 0.0, bij_raw, 1.0)
-
-    # Match LiuOConnorTersoffForceCompute's directed energy.
-    return 0.5 * f_c_ij * (f_r - bij * f_a)
 
 
 def vector_to_params(vec: np.ndarray) -> dict[str, float]:
@@ -536,10 +500,16 @@ def tersoff_surrogate_curve_jax(r, vec, rik_distance, surrogate_cos_theta):
     return 0.5 * f_c_ij * (f_r - bij * f_a)
 
 
+def minimum_point_weakening_jax(curves, reference_index):
+    minima = jnp.min(curves, axis=1)
+    return minima - minima[reference_index]
+
+
 def objective_jax(
     vec,
-    target_curves,
+    target_weakening,
     third_distances,
+    reference_index,
     r_grid,
     surrogate_cos_theta,
 ):
@@ -552,9 +522,13 @@ def objective_jax(
         )
     )(third_distances)
 
-    diff = pred_curves - target_curves
-    per_curve_mse = jnp.mean(diff * diff, axis=1)
-    fit_loss = jnp.mean(per_curve_mse)
+    pred_weakening = minimum_point_weakening_jax(
+        pred_curves,
+        reference_index=reference_index,
+    )
+    diff = pred_weakening - target_weakening
+    mask = jnp.arange(diff.size) != reference_index
+    fit_loss = jnp.sum(jnp.where(mask, diff * diff, 0.0)) / jnp.sum(mask)
     return fit_loss, pred_curves
 
 
@@ -562,22 +536,24 @@ def run_adam_jax(
     init_vec: np.ndarray,
     lower: np.ndarray,
     upper: np.ndarray,
-    target_curves: np.ndarray,
+    target_weakening: np.ndarray,
     third_distances: np.ndarray,
+    reference_index: int,
     r_grid: np.ndarray,
     cfg: FitConfig,
 ) -> tuple[np.ndarray, float, np.ndarray]:
     x = jnp.asarray(np.clip(init_vec.copy(), lower, upper), dtype=jnp.float64)
     lower_j = jnp.asarray(lower, dtype=jnp.float64)
     upper_j = jnp.asarray(upper, dtype=jnp.float64)
-    target_j = jnp.asarray(target_curves, dtype=jnp.float64)
+    target_j = jnp.asarray(target_weakening, dtype=jnp.float64)
     third_j = jnp.asarray(third_distances, dtype=jnp.float64)
     r_j = jnp.asarray(r_grid, dtype=jnp.float64)
 
     objective_bound = partial(
         objective_jax,
-        target_curves=target_j,
+        target_weakening=target_j,
         third_distances=third_j,
+        reference_index=int(reference_index),
         r_grid=r_j,
         surrogate_cos_theta=float(cfg.surrogate_cos_theta),
     )
@@ -635,7 +611,10 @@ def write_fit_csv(path: str, rows: list[dict[str, float]]) -> None:
     fieldnames = [
         "reactive_epsilon",
         "loss",
-        "rmse",
+        "weakening_rmse",
+        "target_reference_third_bead_distance",
+        "target_reference_min_energy",
+        "fit_reference_min_energy",
         "target_reactive_r_cut",
         "target_weakening_inner",
         "target_weakening_outer",
@@ -663,91 +642,166 @@ def write_fit_csv(path: str, rows: list[dict[str, float]]) -> None:
         writer.writerows(rows)
 
 
-def write_curve_csv(
+def write_weakening_csv(
     path: str,
-    r: np.ndarray,
     third_distances: np.ndarray,
-    reactive: np.ndarray,
-    tersoff: np.ndarray,
+    sigma: float,
+    reactive_weakening: np.ndarray,
+    tersoff_weakening: np.ndarray,
+    reactive_minima: np.ndarray,
+    tersoff_minima: np.ndarray,
 ) -> None:
     with open(path, "w", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle)
-        writer.writerow(["third_bead_distance", "r", "reactive_lj", "tersoff_fit"])
-        for curve_idx, third_distance in enumerate(third_distances):
-            rows = np.column_stack(
+        writer.writerow(
+            [
+                "third_bead_distance",
+                "third_bead_distance_over_sigma",
+                "reactive_lj_min_energy",
+                "tersoff_fit_min_energy",
+                "reactive_lj_weakening",
+                "tersoff_fit_weakening",
+            ]
+        )
+        for idx, third_distance in enumerate(third_distances):
+            writer.writerow(
                 [
-                    np.full_like(r, fill_value=float(third_distance), dtype=np.float64),
-                    r,
-                    reactive[curve_idx],
-                    tersoff[curve_idx],
+                    float(third_distance),
+                    float(third_distance / sigma),
+                    float(reactive_minima[idx]),
+                    float(tersoff_minima[idx]),
+                    float(reactive_weakening[idx]),
+                    float(tersoff_weakening[idx]),
                 ]
             )
-            writer.writerows(rows)
 
 
-def make_colored_curve_plot(
+def write_average_weakening_csv(
     path: str,
-    epsilon: float,
-    r: np.ndarray,
     third_distances: np.ndarray,
-    curves: np.ndarray,
     sigma: float,
-    model_label: str,
-    figsize: tuple[float, float] = CURVE_FIGSIZE,
+    reactive_by_epsilon: np.ndarray,
+    tersoff_by_epsilon: np.ndarray,
 ) -> None:
-    fig, ax = uplt.subplots(figsize=figsize, dpi=300)
-    plot_r_min = 0.95 * sigma
-    plot_r_max = 1.5 * sigma
-    plot_mask = (r >= plot_r_min) & (r <= plot_r_max)
-    if not np.any(plot_mask):
-        raise ValueError(
-            f"No points remain after filtering plot range to {plot_r_min:g} <= r <= {plot_r_max:g}."
+    reactive_mean = np.mean(reactive_by_epsilon, axis=0)
+    tersoff_mean = np.mean(tersoff_by_epsilon, axis=0)
+    reactive_std = np.std(reactive_by_epsilon, axis=0)
+    tersoff_std = np.std(tersoff_by_epsilon, axis=0)
+
+    with open(path, "w", encoding="utf-8", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(
+            [
+                "third_bead_distance",
+                "third_bead_distance_over_sigma",
+                "reactive_lj_mean_weakening",
+                "tersoff_fit_mean_weakening",
+                "reactive_lj_std_weakening",
+                "tersoff_fit_std_weakening",
+            ]
         )
-    r_plot = r[plot_mask]
-    curves_plot = curves[:, plot_mask]
+        for idx, third_distance in enumerate(third_distances):
+            writer.writerow(
+                [
+                    float(third_distance),
+                    float(third_distance / sigma),
+                    float(reactive_mean[idx]),
+                    float(tersoff_mean[idx]),
+                    float(reactive_std[idx]),
+                    float(tersoff_std[idx]),
+                ]
+            )
 
-    scaled_distances = third_distances / sigma
-    cmap = uplt.Colormap("plasma_r")
-    colorbar_min = float(np.min(scaled_distances))
-    colorbar_max = float(np.max(scaled_distances))
-    colorbar_range = colorbar_max - colorbar_min
 
-    for idx, dist in enumerate(scaled_distances):
-        if colorbar_range > 0.0:
-            color_value = (float(dist) - colorbar_min) / colorbar_range
+def make_per_epsilon_weakening_plot(
+    path: str,
+    epsilons: list[float],
+    third_distances: np.ndarray,
+    sigma: float,
+    reactive_by_epsilon: np.ndarray,
+    tersoff_by_epsilon: np.ndarray,
+) -> None:
+    n_panels = len(epsilons)
+    if reactive_by_epsilon.shape[0] != n_panels or tersoff_by_epsilon.shape[0] != n_panels:
+        raise ValueError("Per-epsilon weakening arrays must align with the epsilon list.")
+
+    ncols = 1
+    nrows = max(1, math.ceil(n_panels / ncols))
+    fig, axes = uplt.subplots(
+        nrows=nrows,
+        ncols=ncols,
+        figsize=WEAKENING_PLOT_FIGSIZE,
+        dpi=600,
+        tight=False,
+    )
+
+    axes_flat = np.ravel(np.atleast_1d(axes))
+    x = third_distances / sigma
+    order = np.argsort(x)
+    x_plot = x[order]
+    reactive_plot = np.asarray(reactive_by_epsilon[:, order], dtype=np.float64)
+    tersoff_plot = np.asarray(tersoff_by_epsilon[:, order], dtype=np.float64)
+    combined = np.concatenate([reactive_plot.ravel(), tersoff_plot.ravel()])
+    y_min = float(np.nanmin(combined))
+    y_max = float(np.nanmax(combined))
+    y_span = y_max - y_min
+    if y_span <= 0.0:
+        y_span = max(abs(y_max), 1.0)
+    y_pad = 0.08 * y_span
+    y_limits = (min(0.0, y_min - y_pad), y_max + y_pad)
+    x_limits = (float(np.min(x_plot)), float(np.max(x_plot)))
+    x_ticks = np.linspace(x_limits[0], x_limits[1], 5)
+
+    for idx, (axis, epsilon) in enumerate(zip(axes_flat, epsilons, strict=True)):
+        axis.plot(
+            x_plot,
+            reactive_plot[idx],
+            color=REACTIVE_COLOR,
+            linewidth=1.5,
+            marker="o",
+            markersize=3.2,
+            label="ReactiveLJ",
+            zorder=3,
+        )
+        axis.plot(
+            x_plot,
+            tersoff_plot[idx],
+            color=TERSOFF_COLOR,
+            linewidth=1.5,
+            marker="s",
+            markersize=3.0,
+            label="L-O Tersoff",
+            zorder=3,
+        )
+        axis.format(
+            xlabel=r"$r_\mathrm{AC}/\sigma$" if idx == (n_panels - 1) else "",
+            ylabel=r"$\Delta U_\mathrm{min}$",
+            xlim=x_limits,
+            ylim=y_limits,
+            xspineloc="both",
+            yspineloc="both",
+            xtickloc="both",
+            ytickloc="both",
+            tickdir="in",
+            grid=False,
+        )
+        axis.set_xticks(x_ticks)
+        if idx == (n_panels - 1):
+            axis.set_xticklabels([f"{tick:g}" for tick in x_ticks])
         else:
-            color_value = 0.5
-        color = cmap(color_value)
-        ax.plot(r_plot, curves_plot[idx], color=color, linewidth=1.3)
+            axis.set_xticklabels([])
+        axis.tick_params(axis="both", labelsize=8)
+        axis.xaxis.label.set_size(9)
+        axis.yaxis.label.set_size(10)
+        axis.yaxis.label.set_rotation(90)
+        axis.yaxis.label.set_horizontalalignment("center")
+        axis.yaxis.label.set_verticalalignment("bottom")
+        axis.set_title(rf"$\varepsilon_\mathrm{{RLJ}}={epsilon:g}$", fontsize=10)
+        if idx == 0:
+            axis.legend(fontsize=8, frameon=True, loc="best")
 
-    ax.format(
-        xlabel=r"$r_\mathrm{AB}/\sigma$",
-        ylabel=r"$U(r_\mathrm{AB})$",
-        xlim=(plot_r_min, plot_r_max),
-        ylim=(-14.0, 14.0),
-        xspineloc="both",
-        yspineloc="both",
-        xtickloc="both",
-        ytickloc="both",
-        tickdir="in",
-        grid=False,
-    )
-    ax.tick_params(axis="both", labelsize=8)
-    ax.xaxis.label.set_size(10)
-    ax.yaxis.label.set_size(10)
-    ax.yaxis.label.set_rotation(90)
-    ax.yaxis.label.set_horizontalalignment("center")
-    ax.yaxis.label.set_verticalalignment("bottom")
-
-    cbar = fig.colorbar(
-        cmap,
-        loc="r",
-        vmin=colorbar_min,
-        vmax=colorbar_max,
-    )
-    cbar.minorticks_off()
-    cbar.ax.tick_params(axis="both", labelsize=8)
-    cbar.ax.set_title(r"$r_\mathrm{AC}/\sigma$", fontsize=10, pad=3)
+    for axis in axes_flat[n_panels:]:
+        axis.set_axis_off()
 
     fig.savefig(path)
     uplt.close(fig)
@@ -843,8 +897,18 @@ def main() -> None:
         exponent=cfg.weakening_exponent,
         count=int(args.n_third_bead_distances),
     )
+    reference_index = reference_distance_index(third_distances)
+    reference_distance = float(third_distances[reference_index])
+    print(
+        "Weakening objective: "
+        "Delta U_min(C)=min[U(C)]-min[U(C_ref)] "
+        f"with C_ref/sigma={reference_distance / cfg.sigma:g}",
+        flush=True,
+    )
 
     rows: list[dict[str, float]] = []
+    reactive_weakening_by_epsilon: list[np.ndarray] = []
+    tersoff_weakening_by_epsilon: list[np.ndarray] = []
 
     for epsilon in args.epsilons:
         epsilon = float(epsilon)
@@ -854,67 +918,10 @@ def main() -> None:
             cfg=cfg,
             third_distances=third_distances,
         )
-        reactive_plot_path = os.path.join(
-            plot_dir, f"reactive_lj_curves_eps_{epsilon:g}.svg"
+        target_weakening, target_minima = minimum_point_weakening(
+            target_curves,
+            reference_index=reference_index,
         )
-        make_colored_curve_plot(
-            path=reactive_plot_path,
-            epsilon=epsilon,
-            r=r_grid,
-            third_distances=third_distances,
-            curves=target_curves,
-            sigma=cfg.sigma,
-            model_label="ReactiveLJ",
-        )
-        print(
-            f"epsilon={epsilon:g} wrote pre-fit ReactiveLJ curves: {reactive_plot_path}",
-            flush=True,
-        )
-        if math.isclose(
-            epsilon,
-            SELECTED_REACTIVE_EPSILON,
-            rel_tol=0.0,
-            abs_tol=1e-12,
-        ):
-            selected_third_distances = (
-                np.asarray(
-                    SELECTED_REACTIVE_THIRD_BEAD_DISTANCES_SIGMA,
-                    dtype=np.float64,
-                )
-                * cfg.sigma
-            )
-            selected_target_curves = reactive_curve_set(
-                r_grid,
-                epsilon=epsilon,
-                cfg=cfg,
-                third_distances=selected_third_distances,
-            )
-            selected_distances_label = "_".join(
-                f"{value:g}".replace(".", "p")
-                for value in SELECTED_REACTIVE_THIRD_BEAD_DISTANCES_SIGMA
-            )
-            selected_reactive_plot_path = os.path.join(
-                plot_dir,
-                (
-                    f"reactive_lj_curves_eps_{epsilon:g}_"
-                    f"r_ac_{selected_distances_label}.svg"
-                ),
-            )
-            make_colored_curve_plot(
-                path=selected_reactive_plot_path,
-                epsilon=epsilon,
-                r=r_grid,
-                third_distances=selected_third_distances,
-                curves=selected_target_curves,
-                sigma=cfg.sigma,
-                model_label="ReactiveLJ",
-                figsize=SELECTED_REACTIVE_CURVE_FIGSIZE,
-            )
-            print(
-                f"epsilon={epsilon:g} wrote selected ReactiveLJ curves: "
-                f"{selected_reactive_plot_path}",
-                flush=True,
-            )
 
         default_params = build_default_params(
             epsilon=epsilon,
@@ -945,8 +952,9 @@ def main() -> None:
                 init_vec=init_vec,
                 lower=lower,
                 upper=upper,
-                target_curves=target_curves,
+                target_weakening=target_weakening,
                 third_distances=third_distances,
+                reference_index=reference_index,
                 r_grid=r_grid,
                 cfg=cfg,
             )
@@ -958,50 +966,86 @@ def main() -> None:
 
         assert best_vec is not None and best_curve is not None
 
-        rmse = float(np.sqrt(np.mean(np.square(best_curve - target_curves))))
+        best_weakening, best_minima = minimum_point_weakening(
+            best_curve,
+            reference_index=reference_index,
+        )
+        weakening_rmse = compute_weakening_rmse(
+            predicted=best_weakening,
+            target=target_weakening,
+            reference_index=reference_index,
+        )
         fit_params = vector_to_params(best_vec)
 
         row = {
             "reactive_epsilon": epsilon,
             "loss": best_loss,
-            "rmse": rmse,
+            "weakening_rmse": weakening_rmse,
+            "target_reference_third_bead_distance": reference_distance,
+            "target_reference_min_energy": float(target_minima[reference_index]),
+            "fit_reference_min_energy": float(best_minima[reference_index]),
             "target_reactive_r_cut": cfg.reactive_r_cut,
             "target_weakening_inner": cfg.weakening_inner,
             "target_weakening_outer": cfg.weakening_outer,
             "r_cut": fit_params["r_cut"],
-            "third_bead_min": float(third_distances[0]),
-            "third_bead_max": float(third_distances[-1]),
+            "third_bead_min": float(np.min(third_distances)),
+            "third_bead_max": float(np.max(third_distances)),
             "n_third_bead_distances": int(third_distances.size),
         }
         row.update(fit_params)
         rows.append(row)
 
-        curve_csv = os.path.join(output_dir, f"curve_fit_eps_{epsilon:g}.csv")
-        write_curve_csv(curve_csv, r_grid, third_distances, target_curves, best_curve)
-
-        tersoff_plot_path = os.path.join(
-            plot_dir, f"tersoff_curves_eps_{epsilon:g}.svg"
+        weakening_csv = os.path.join(
+            output_dir,
+            f"weakening_fit_eps_{epsilon:g}.csv",
         )
-        make_colored_curve_plot(
-            path=tersoff_plot_path,
-            epsilon=epsilon,
-            r=r_grid,
+        write_weakening_csv(
+            path=weakening_csv,
             third_distances=third_distances,
-            curves=best_curve,
             sigma=cfg.sigma,
-            model_label="Liu/O'Connor Tersoff fit",
+            reactive_weakening=target_weakening,
+            tersoff_weakening=best_weakening,
+            reactive_minima=target_minima,
+            tersoff_minima=best_minima,
         )
+        reactive_weakening_by_epsilon.append(target_weakening)
+        tersoff_weakening_by_epsilon.append(best_weakening)
 
         print(
-            f"epsilon={epsilon:g} fit_loss={best_loss:.6e} rmse={rmse:.6e} "
+            f"epsilon={epsilon:g} fit_loss={best_loss:.6e} "
+            f"weakening_rmse={weakening_rmse:.6e} "
             f"A1={fit_params['A1']:.4g} A2={fit_params['A2']:.4g} "
-            f"tersoff_plot={tersoff_plot_path}",
+            f"weakening_csv={weakening_csv}",
             flush=True,
         )
 
+    reactive_weakening_array = np.asarray(reactive_weakening_by_epsilon, dtype=np.float64)
+    tersoff_weakening_array = np.asarray(tersoff_weakening_by_epsilon, dtype=np.float64)
+    average_weakening_csv = os.path.join(output_dir, "average_weakening.csv")
+    write_average_weakening_csv(
+        path=average_weakening_csv,
+        third_distances=third_distances,
+        sigma=cfg.sigma,
+        reactive_by_epsilon=reactive_weakening_array,
+        tersoff_by_epsilon=tersoff_weakening_array,
+    )
+    average_weakening_plot = os.path.join(
+        plot_dir,
+        "average_weakening_vs_third_bead_distance.svg",
+    )
+    make_per_epsilon_weakening_plot(
+        path=average_weakening_plot,
+        epsilons=[float(epsilon) for epsilon in args.epsilons],
+        third_distances=third_distances,
+        sigma=cfg.sigma,
+        reactive_by_epsilon=reactive_weakening_array,
+        tersoff_by_epsilon=tersoff_weakening_array,
+    )
+
     write_fit_csv(params_csv, rows)
     print(f"Wrote fitted parameters: {params_csv}", flush=True)
-    print(f"Wrote curve plots: {plot_dir}", flush=True)
+    print(f"Wrote weakening table: {average_weakening_csv}", flush=True)
+    print(f"Wrote weakening plot: {average_weakening_plot}", flush=True)
 
 
 if __name__ == "__main__":

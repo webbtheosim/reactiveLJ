@@ -47,6 +47,13 @@ SWAP_RATE_PLOT_EXCLUDED_EPSILONS = (0.0, 6.0)
 DEFAULT_TAU_R0 = 4041.0
 TAU_S_BAR_PLOT_EXCLUDED_EPSILONS = (0.0, 6.0)
 DOMAIN_MIN_PERSISTENCE_FRAMES = 3
+POINTS_PER_INCH = 72.0
+SINGLE_CHAIN_BAR_FIGURE_WIDTH_PT = 237.6
+SINGLE_CHAIN_BAR_FIGURE_HEIGHT_PT = 144.0
+SINGLE_CHAIN_BAR_AXES_LEFT_PT = 35.55
+SINGLE_CHAIN_BAR_AXES_BOTTOM_PT = 27.66
+SINGLE_CHAIN_BAR_AXES_WIDTH_PT = 197.55
+SINGLE_CHAIN_BAR_AXES_HEIGHT_PT = 109.609905
 
 
 def log(message: str) -> None:
@@ -135,6 +142,17 @@ def finite_array(values: np.ndarray) -> np.ndarray:
 
 def epsilon_is_excluded(epsilon: float, excluded_values: Tuple[float, ...]) -> bool:
     return any(np.isclose(float(epsilon), excluded) for excluded in excluded_values)
+
+
+def set_single_chain_bar_axes_position(ax) -> None:
+    ax.set_position(
+        [
+            SINGLE_CHAIN_BAR_AXES_LEFT_PT / SINGLE_CHAIN_BAR_FIGURE_WIDTH_PT,
+            SINGLE_CHAIN_BAR_AXES_BOTTOM_PT / SINGLE_CHAIN_BAR_FIGURE_HEIGHT_PT,
+            SINGLE_CHAIN_BAR_AXES_WIDTH_PT / SINGLE_CHAIN_BAR_FIGURE_WIDTH_PT,
+            SINGLE_CHAIN_BAR_AXES_HEIGHT_PT / SINGLE_CHAIN_BAR_FIGURE_HEIGHT_PT,
+        ]
+    )
 
 
 def style_axes(ax) -> None:
@@ -442,6 +460,11 @@ def write_domain_size_distribution_by_epsilon_plot(
     for idx, (eps, unique_values, probabilities) in enumerate(processed):
         color = color_by_epsilon.get(float(eps), fallback_colors[idx % len(fallback_colors)])
         is_zero_epsilon = np.isclose(float(eps), 0.0)
+        legend_label = (
+            r"$\varepsilon_\mathrm{RLJ}=\mathrm{None}$"
+            if is_zero_epsilon
+            else rf"$\varepsilon_\mathrm{{RLJ}}={eps:g}$"
+        )
         aligned_probabilities = np.zeros_like(support_values, dtype=np.float64)
         for value, probability in zip(unique_values, probabilities):
             support_idx = support_index.get(float(value))
@@ -456,7 +479,7 @@ def write_domain_size_distribution_by_epsilon_plot(
             linewidth=0.2,
             alpha=1.0 if is_zero_epsilon else 0.95,
             hatch=None,
-            label=rf"$\varepsilon_\mathrm{{RLJ}}={eps:g}$",
+            label=legend_label,
         )
 
     major_tick_mask = np.isclose(np.mod(support_values, 20.0), 0.0)
@@ -630,39 +653,52 @@ def write_exchange_rate_comparison_plot(
     xtick_labels: List[str] = []
     assoc_means: List[float] = []
     dissoc_means: List[float] = []
+    positive_values: List[float] = []
     for eps, assoc_values, dissoc_values in zip(epsilon_values, assoc_data, dissoc_data):
         assoc_arr = finite_array(assoc_values)
         assoc_arr = assoc_arr[assoc_arr > 0.0]
         dissoc_arr = finite_array(dissoc_values)
         dissoc_arr = dissoc_arr[dissoc_arr > 0.0]
-        if assoc_arr.size == 0 and dissoc_arr.size == 0:
+        assoc_mean = float(np.mean(assoc_arr)) if assoc_arr.size else float("nan")
+        dissoc_mean = float(np.mean(dissoc_arr)) if dissoc_arr.size else float("nan")
+        show_assoc = np.isfinite(assoc_mean) and assoc_mean > 0.0
+        show_dissoc = np.isfinite(dissoc_mean) and dissoc_mean > 0.0
+        if not (show_assoc or show_dissoc):
             continue
 
-        positions.append(float(len(positions)))
-        xtick_labels.append(f"{eps:g}")
-        assoc_means.append(float(np.mean(assoc_arr)) if assoc_arr.size else float("nan"))
-        dissoc_means.append(float(np.mean(dissoc_arr)) if dissoc_arr.size else float("nan"))
+        center = float(len(positions))
+        positions.append(center)
+        xtick_labels.append("None" if np.isclose(float(eps), 0.0, rtol=0.0, atol=1.0e-12) else f"{eps:g}")
+        assoc_means.append(assoc_mean if show_assoc else float("nan"))
+        dissoc_means.append(dissoc_mean if show_dissoc else float("nan"))
+        if show_assoc:
+            positive_values.append(assoc_mean)
+        if show_dissoc:
+            positive_values.append(dissoc_mean)
 
     if not positions:
         return
 
     position_array = np.asarray(positions, dtype=np.float64)
-    assoc_mean_array = np.asarray(assoc_means, dtype=np.float64)
-    dissoc_mean_array = np.asarray(dissoc_means, dtype=np.float64)
-    positive_values = np.concatenate(
-        (
-            assoc_mean_array[np.isfinite(assoc_mean_array)],
-            dissoc_mean_array[np.isfinite(dissoc_mean_array)],
-        )
-    )
-    if positive_values.size == 0:
+    positive_values_array = np.asarray(positive_values, dtype=np.float64)
+    if positive_values_array.size == 0:
         return
 
     width = 0.36
-    y_floor = 10.0 ** np.floor(np.log10(np.min(positive_values)))
-    y_ceiling = 10.0 ** np.ceil(np.log10(np.max(positive_values) * 1.2))
+    y_floor = 10.0 ** np.floor(np.log10(np.min(positive_values_array)))
+    y_ceiling = 10.0 ** np.ceil(np.log10(np.max(positive_values_array) * 1.2))
 
-    fig, ax = uplt.subplots(figsize=(3.3, 2.0), dpi=600)
+    fig, ax = uplt.subplots(
+        figsize=(
+            SINGLE_CHAIN_BAR_FIGURE_WIDTH_PT / POINTS_PER_INCH,
+            SINGLE_CHAIN_BAR_FIGURE_HEIGHT_PT / POINTS_PER_INCH,
+        ),
+        dpi=600,
+        tight=False,
+    )
+    set_single_chain_bar_axes_position(ax)
+    assoc_mean_array = np.asarray(assoc_means, dtype=np.float64)
+    dissoc_mean_array = np.asarray(dissoc_means, dtype=np.float64)
     assoc_mask = np.isfinite(assoc_mean_array)
     if np.any(assoc_mask):
         ax.bar(
@@ -708,6 +744,7 @@ def write_exchange_rate_comparison_plot(
         grid=False,
     )
     ax.tick_params(axis="both", labelsize=TICK_FONTSIZE)
+    ax.tick_params(axis="x", which="both", length=0)
     ax.legend(
         frameon=False,
         fontsize=LEGEND_FONTSIZE,
@@ -717,6 +754,7 @@ def write_exchange_rate_comparison_plot(
         handletextpad=0.5,
         columnspacing=1.0,
     )
+    set_single_chain_bar_axes_position(ax)
     fig.savefig(path)
     uplt.close(fig)
 
@@ -868,8 +906,6 @@ def write_tau_bar_vs_epsilon_plot(
         epsilon = float(row["epsilon"])
         tau_s = float(row["tau_s_mean"])
         tau_b = float(row["tau_b_mean"])
-        if epsilon <= 0.0:
-            continue
         tau_s_excluded = epsilon_is_excluded(epsilon, TAU_S_BAR_PLOT_EXCLUDED_EPSILONS)
         tau_s_value = float("nan")
         if not tau_s_excluded and np.isfinite(tau_s) and tau_s > 0.0:
@@ -891,15 +927,39 @@ def write_tau_bar_vs_epsilon_plot(
 
     positions = np.arange(len(rows), dtype=float)
     width = 0.36
-    positive_values = np.concatenate((tau_s_values[np.isfinite(tau_s_values)], tau_b_values[np.isfinite(tau_b_values)]))
+    positive_values = np.concatenate(
+        (tau_s_values[np.isfinite(tau_s_values)], tau_b_values[np.isfinite(tau_b_values)])
+    )
     y_floor = 10.0 ** np.floor(np.log10(np.min(positive_values)))
 
-    fig, ax = uplt.subplots(figsize=(3.3, 2.0), dpi=600)
-    tau_s_mask = np.isfinite(tau_s_values)
-    if np.any(tau_s_mask):
+    fig, ax = uplt.subplots(
+        figsize=(
+            SINGLE_CHAIN_BAR_FIGURE_WIDTH_PT / POINTS_PER_INCH,
+            SINGLE_CHAIN_BAR_FIGURE_HEIGHT_PT / POINTS_PER_INCH,
+        ),
+        dpi=600,
+        tight=False,
+    )
+    set_single_chain_bar_axes_position(ax)
+    tau_s_specs: List[Tuple[float, float]] = []
+    tau_b_specs: List[Tuple[float, float]] = []
+    for center, tau_s_value, tau_b_value in zip(positions, tau_s_values, tau_b_values):
+        tau_s_resolved = np.isfinite(tau_s_value)
+        tau_b_resolved = np.isfinite(tau_b_value)
+        if tau_s_resolved and tau_b_resolved:
+            tau_s_specs.append((center - width / 2.0, float(tau_s_value)))
+            tau_b_specs.append((center + width / 2.0, float(tau_b_value)))
+        elif tau_s_resolved:
+            tau_s_specs.append((center, float(tau_s_value)))
+        elif tau_b_resolved:
+            tau_b_specs.append((center, float(tau_b_value)))
+
+    if tau_s_specs:
+        tau_s_positions = np.asarray([spec[0] for spec in tau_s_specs], dtype=np.float64)
+        tau_s_plot_values = np.asarray([spec[1] for spec in tau_s_specs], dtype=np.float64)
         ax.bar(
-            positions[tau_s_mask] - width / 2,
-            tau_s_values[tau_s_mask],
+            tau_s_positions,
+            tau_s_plot_values,
             width=width,
             bottom=y_floor,
             color="#e77500",
@@ -908,11 +968,12 @@ def write_tau_bar_vs_epsilon_plot(
             label=r"$\tau_s$",
             zorder=3,
         )
-    tau_b_mask = np.isfinite(tau_b_values)
-    if np.any(tau_b_mask):
+    if tau_b_specs:
+        tau_b_positions = np.asarray([spec[0] for spec in tau_b_specs], dtype=np.float64)
+        tau_b_plot_values = np.asarray([spec[1] for spec in tau_b_specs], dtype=np.float64)
         ax.bar(
-            positions[tau_b_mask] + width / 2,
-            tau_b_values[tau_b_mask],
+            tau_b_positions,
+            tau_b_plot_values,
             width=width,
             bottom=y_floor,
             color="#121212",
@@ -923,7 +984,13 @@ def write_tau_bar_vs_epsilon_plot(
         )
 
     ax.set_xticks(positions)
-    ax.set_xticklabels([f"{epsilon:g}" for epsilon in epsilon_values], fontsize=TICK_FONTSIZE)
+    ax.set_xticklabels(
+        [
+            "None" if np.isclose(float(epsilon), 0.0, rtol=0.0, atol=1.0e-12) else f"{epsilon:g}"
+            for epsilon in epsilon_values
+        ],
+        fontsize=TICK_FONTSIZE,
+    )
     ax.set_yscale("log")
     ax.set_ylim(y_floor, float(np.max(positive_values) * 1.3))
     ax.set_xlabel(
@@ -940,8 +1007,10 @@ def write_tau_bar_vs_epsilon_plot(
         grid=False,
     )
     ax.tick_params(axis="both", labelsize=TICK_FONTSIZE)
+    ax.tick_params(axis="x", which="both", length=0)
     ax.legend(frameon=False, fontsize=LEGEND_FONTSIZE, loc="best")
 
+    set_single_chain_bar_axes_position(ax)
     fig.savefig(path)
     uplt.close(fig)
 
@@ -1501,10 +1570,9 @@ def main() -> None:
             swap_rate_per_free_data,
             tau_s_data,
         ):
-            if not epsilon_is_excluded(eps, EXCHANGE_RATE_PLOT_EXCLUDED_EPSILONS):
-                exchange_eps.append(eps)
-                exchange_assoc_rate_data.append(assoc)
-                exchange_dissoc_rate_data.append(dissoc)
+            exchange_eps.append(eps)
+            exchange_assoc_rate_data.append(assoc)
+            exchange_dissoc_rate_data.append(dissoc)
             if not epsilon_is_excluded(eps, SWAP_RATE_PLOT_EXCLUDED_EPSILONS):
                 swap_eps.append(eps)
                 swap_rate_plot_data.append(swap)

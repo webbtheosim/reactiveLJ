@@ -32,7 +32,10 @@ os.makedirs(os.environ["XDG_CACHE_HOME"], exist_ok=True)
 import matplotlib
 
 matplotlib.use("Agg")
+import matplotlib.colors as mcolors
+import matplotlib.ticker as mticker
 import matplotlib.pyplot as plt
+import ultraplot as uplt
 
 # Ensure local imports resolve when running from repo root.
 sys.path.append(os.path.dirname(__file__))
@@ -1305,6 +1308,27 @@ def write_cluster_distribution_by_epsilon_plot(
     epsilon_values: List[float],
     cluster_distribution_by_eps: Dict[float, np.ndarray],
 ) -> None:
+    def set_target_axes_position(ax) -> None:
+        figure_width_pt = 237.6
+        figure_height_pt = 144.0
+        axes_left_pt = 51.541515
+        axes_bottom_pt = 41.816
+        axes_width_pt = 175.258485
+        axes_height_pt = 88.344535
+        ax.set_position(
+            [
+                axes_left_pt / figure_width_pt,
+                axes_bottom_pt / figure_height_pt,
+                axes_width_pt / figure_width_pt,
+                axes_height_pt / figure_height_pt,
+            ]
+        )
+
+    def format_epsilon_legend_label(epsilon: float) -> str:
+        if np.isclose(float(epsilon), 0.0, rtol=0.0, atol=1.0e-12):
+            return r"$\varepsilon_\mathrm{RLJ}=\mathrm{None}$"
+        return rf"$\varepsilon_\mathrm{{RLJ}}={epsilon:g}$"
+
     series = []
     for eps in epsilon_values:
         distribution = cluster_distribution_by_eps.get(eps)
@@ -1323,18 +1347,23 @@ def write_cluster_distribution_by_epsilon_plot(
         return
 
     cmap = plt.get_cmap("plasma", len(series))
-    fig, ax = plt.subplots(figsize=(3.3, 2.0))
+    fig, ax = uplt.subplots(
+        figsize=(237.6 / 72.0, 144.0 / 72.0),
+        dpi=1000,
+        tight=False,
+    )
+    set_target_axes_position(ax)
     max_x = 1.0
     max_y = 1.0e-6
     min_y = np.inf
     for idx, (eps, cluster_size, prob) in enumerate(series):
-        color = cmap(idx)
+        color = mcolors.to_hex(cmap(idx))
         ax.scatter(
             cluster_size,
             prob,
             s=8.0,
             color=color,
-            label=f"eps={eps:g}",
+            label=format_epsilon_legend_label(eps),
             linewidths=0.0,
         )
         max_x = max(max_x, float(np.max(cluster_size)))
@@ -1345,15 +1374,23 @@ def write_cluster_distribution_by_epsilon_plot(
     ax.set_yscale("log")
     ax.set_xlabel("M", fontsize=10)
     ax.set_ylabel("P(M)", fontsize=10)
+    ax.yaxis.set_major_formatter(mticker.LogFormatterSciNotation(base=10.0))
+    ax.format(
+        xspineloc="both",
+        yspineloc="both",
+        xtickloc="both",
+        ytickloc="both",
+        tickdir="in",
+        grid=False,
+    )
     ax.tick_params(axis="both", which="both", labelsize=8)
     ax.set_xlim(left=1.0, right=max_x * 1.08)
     if np.isfinite(min_y) and min_y > 0.0:
         ax.set_ylim(bottom=min_y * 0.8, top=max_y * 1.2)
-    ax.grid(False, which="both")
     ax.legend(frameon=False, fontsize=7, ncol=1)
-    fig.tight_layout()
-    fig.savefig(path, dpi=1000)
-    plt.close(fig)
+    set_target_axes_position(ax)
+    fig.savefig(path, format="svg")
+    uplt.close(fig)
 
 
 def write_msd_vs_time_lag_by_epsilon_plot(

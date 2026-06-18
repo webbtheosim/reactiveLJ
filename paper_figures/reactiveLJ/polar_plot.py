@@ -557,10 +557,7 @@ def plot_energy_landscape(
 
     cbar = fig.colorbar(mesh, ax=ax, pad=0.12, shrink=0.92)
     cbar.ax.tick_params(labelsize=8)
-    if quantity == "ab_weakening":
-        cbar.set_label(r"$\Delta U_{AB}$", fontsize=10)
-    else:
-        cbar.set_label("Energy barrier", fontsize=10)
+    cbar.set_label(r"$\frac{\Delta U}{\varepsilon_0}$", fontsize=10, rotation=0, labelpad=14)
 
     fig.savefig(output_path, format="svg")
     plt.close(fig)

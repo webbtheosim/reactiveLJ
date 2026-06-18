@@ -20,6 +20,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, List, Set, Tuple
 
+USER_TMP_DIR = Path("/tmp") / f"reactive_lj_plot_cache_{os.getuid()}"
+USER_TMP_DIR.mkdir(parents=True, exist_ok=True)
+os.environ.setdefault("MPLCONFIGDIR", str(USER_TMP_DIR / "matplotlib"))
+os.environ.setdefault("XDG_CACHE_HOME", str(USER_TMP_DIR / "xdg"))
+Path(os.environ["MPLCONFIGDIR"]).mkdir(parents=True, exist_ok=True)
+Path(os.environ["XDG_CACHE_HOME"]).mkdir(parents=True, exist_ok=True)
+
 import freud
 import gsd.hoomd
 import matplotlib
@@ -27,13 +34,27 @@ import numpy as np
 from joblib import Parallel, delayed
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
+import ultraplot as uplt
 
 
 FALLBACK_TAU_R0 = 4041.0
 MAX_ANALYSIS_LAG_TAU_R0 = 1000.0
 MAX_ANALYSIS_LAG_TIME = FALLBACK_TAU_R0 * MAX_ANALYSIS_LAG_TAU_R0
 DEFAULT_WEAKENING_EXPONENT = 4.0
+POINTS_PER_INCH = 72.0
+FIGURE_WIDTH_PT = 237.6
+FIGURE_HEIGHT_PT = 144.0
+AXES_LEFT_PT = 35.369779
+AXES_BOTTOM_PT = 27.66
+AXES_WIDTH_PT = 197.730221
+AXES_HEIGHT_PT = 108.9
+DEFAULT_FIGSIZE = (
+    FIGURE_WIDTH_PT / POINTS_PER_INCH,
+    FIGURE_HEIGHT_PT / POINTS_PER_INCH,
+)
+DEFAULT_DPI = 1000
+DEFAULT_TICK_FONTSIZE = 8
+DEFAULT_LABEL_FONTSIZE = 10
 ConditionKey = Tuple[float, float]
 
 
@@ -156,6 +177,24 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=FALLBACK_TAU_R0,
         help="Reference tau_R^0 used to scale the plot x-axis.",
+    )
+    parser.add_argument(
+        "--plot-x-min-time",
+        type=float,
+        default=None,
+        help=(
+            "Optional left x-axis limit in tau_LJ units. When omitted, use the "
+            "minimum positive lag available in the plotted MSD curves."
+        ),
+    )
+    parser.add_argument(
+        "--plot-x-max-tau-r0",
+        type=float,
+        default=MAX_ANALYSIS_LAG_TAU_R0,
+        help=(
+            "Right x-axis limit in tau/tau_R^0 units. Default keeps the current "
+            f"{MAX_ANALYSIS_LAG_TAU_R0:g} tau_R^0 range."
+        ),
     )
     parser.add_argument(
         "--plot-name",
@@ -651,12 +690,13 @@ def compute_shared_time_lag_xlim(
     msd_time_by_condition: Dict[ConditionKey, np.ndarray],
     msd_mean_by_condition: Dict[ConditionKey, np.ndarray],
     tau_r0: float,
+    plot_x_min_time: float | None = None,
+    plot_x_max_tau_r0: float = MAX_ANALYSIS_LAG_TAU_R0,
 ) -> Tuple[float, float] | None:
     if not np.isfinite(tau_r0) or tau_r0 <= 0.0:
         tau_r0 = FALLBACK_TAU_R0
 
     positive_xmins: List[float] = []
-    positive_xmaxs: List[float] = []
     for condition, msd_time in msd_time_by_condition.items():
         msd_mean = msd_mean_by_condition.get(condition)
         if msd_mean is None:
@@ -669,11 +709,37 @@ def compute_shared_time_lag_xlim(
         mask = np.isfinite(x) & np.isfinite(y) & (x > 0.0) & (y > 0.0)
         if np.any(mask):
             positive_xmins.append(float(np.min(x[mask])))
-            positive_xmaxs.append(float(np.max(x[mask])))
 
-    if not positive_xmins or not positive_xmaxs:
+    if plot_x_min_time is not None:
+        x_min = float(plot_x_min_time) / tau_r0
+        if not np.isfinite(x_min) or x_min <= 0.0:
+            return None
+    elif positive_xmins:
+        x_min = min(positive_xmins)
+    else:
         return None
-    return min(positive_xmins), max(positive_xmaxs)
+
+    x_max = float(plot_x_max_tau_r0)
+    if not np.isfinite(x_max) or x_max <= x_min:
+        x_max = MAX_ANALYSIS_LAG_TAU_R0
+    return x_min, x_max
+
+
+def set_target_axes_position(ax) -> None:
+    ax.set_position(
+        [
+            AXES_LEFT_PT / FIGURE_WIDTH_PT,
+            AXES_BOTTOM_PT / FIGURE_HEIGHT_PT,
+            AXES_WIDTH_PT / FIGURE_WIDTH_PT,
+            AXES_HEIGHT_PT / FIGURE_HEIGHT_PT,
+        ]
+    )
+
+
+def format_epsilon_legend_value(epsilon: float) -> str:
+    if math.isclose(epsilon, 0.0, rel_tol=0.0, abs_tol=1.0e-12):
+        return r"\mathrm{None}"
+    return f"{epsilon:g}"
 
 
 def format_condition_label(
@@ -686,8 +752,11 @@ def format_condition_label(
     if len(epsilon_values) == 1 and len(weakening_values) > 1:
         return f"p={weakening_exponent:g}"
     if len(weakening_values) == 1:
-        return f"eps={epsilon:g}"
-    return f"eps={epsilon:g}, p={weakening_exponent:g}"
+        return rf"$\varepsilon_\mathrm{{RLJ}}={format_epsilon_legend_value(epsilon)}$"
+    return (
+        rf"$\varepsilon_\mathrm{{RLJ}}={format_epsilon_legend_value(epsilon)}$, "
+        rf"p={weakening_exponent:g}"
+    )
 
 
 def condition_dir_name(condition: ConditionKey, include_p: bool) -> str:
@@ -729,28 +798,44 @@ def write_msd_by_condition_plot(
         return
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    cmap = plt.get_cmap(colormap, len(series))
-    fig, ax = plt.subplots(figsize=(3.3, 1.5))
+    cmap = matplotlib.colormaps.get_cmap(colormap)
+    color_positions = np.linspace(0.0, 1.0, max(1, len(series)))
+    fig, ax = uplt.subplots(figsize=DEFAULT_FIGSIZE, dpi=DEFAULT_DPI, tight=False)
+    set_target_axes_position(ax)
     plot_conditions = [condition for condition, _, _ in series]
     for idx, (condition, x, y) in enumerate(series):
         ax.plot(
             x,
             y,
-            color=cmap(idx),
+            color=cmap(color_positions[idx]),
             lw=2.0,
             label=format_condition_label(condition, plot_conditions),
         )
 
     ax.set_xscale("log")
     ax.set_yscale("log")
-    ax.set_xlabel(r"$\tau / \tau_R^0$", fontsize=10)
-    ax.set_ylabel("MSD", fontsize=10)
-    ax.tick_params(axis="both", which="both", labelsize=8)
+    ax.set_xlabel(r"$\tau / \tau_R^0$", fontsize=DEFAULT_LABEL_FONTSIZE)
+    ax.set_ylabel("MSD", fontsize=DEFAULT_LABEL_FONTSIZE)
     if x_limits is not None:
         ax.set_xlim(left=x_limits[0], right=x_limits[1])
-    ax.legend(frameon=False, ncol=2, fontsize=8)
-    fig.savefig(path, dpi=1000)
-    plt.close(fig)
+    ax.format(
+        xspineloc="both",
+        yspineloc="both",
+        ytickloc="both",
+        tickdir="in",
+        grid=False,
+    )
+    ax.tick_params(
+        axis="both",
+        which="both",
+        top=True,
+        right=True,
+        labelsize=DEFAULT_TICK_FONTSIZE,
+    )
+    ax.legend(frameon=False, ncol=2, fontsize=DEFAULT_TICK_FONTSIZE)
+    set_target_axes_position(ax)
+    fig.savefig(path)
+    uplt.close(fig)
 
 
 def write_summary(
@@ -814,6 +899,10 @@ def main() -> None:
         raise RuntimeError("--msd-max-lag-frames must be >= 0.")
     if args.max_replicates_per_condition < 0:
         raise RuntimeError("--max-replicates-per-condition must be >= 0.")
+    if args.plot_x_min_time is not None and args.plot_x_min_time <= 0.0:
+        raise RuntimeError("--plot-x-min-time must be > 0 when provided.")
+    if args.plot_x_max_tau_r0 <= 0.0:
+        raise RuntimeError("--plot-x-max-tau-r0 must be > 0.")
 
     selected_conditions = parse_condition_filters(args.conditions)
     selected_weakening_exponents = args.weakening_exponents
@@ -895,6 +984,8 @@ def main() -> None:
         msd_time_by_condition,
         msd_mean_by_condition,
         float(args.tau_r0),
+        plot_x_min_time=args.plot_x_min_time,
+        plot_x_max_tau_r0=args.plot_x_max_tau_r0,
     )
 
     for condition, result in aggregated.items():

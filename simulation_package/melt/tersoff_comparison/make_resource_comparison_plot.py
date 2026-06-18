@@ -32,6 +32,13 @@ ARRAY_TASK_RE = re.compile(r"^(?P<job_id>\d+)_(?P<task_id>\d+)\.batch$")
 LOG_JOB_RE = re.compile(r"_(?P<job_id>\d+)_(?P<task_id>\d+)\.out$")
 GPU_MEM_RE = re.compile(r"(?:^|,)gres/gpumem=(?P<value>[^,]+)")
 GPU_TYPE_RE = re.compile(r"\bGres=.*?\bgpu:([^:,\s(]+)")
+RESOURCE_SUMMARY_RE = re.compile(
+    r"_(?P<job_id>\d+)_(?P<task_id>\d+)_summary\.txt$"
+)
+RESOURCE_MODEL_LABELS = {
+    "reactive_lj": "ReactiveLJ",
+    "tersoff": "Tersoff",
+}
 
 
 @dataclass(frozen=True)
@@ -44,14 +51,21 @@ class AccountingSample:
     node_list: str
     max_rss_mib: float | None
     gpu_mem_mib: float | None
+    source_path: str = ""
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Create grouped bar plots comparing host RAM and GPU memory for "
-            "ReactiveLJ and Liu/O'Connor Tersoff Slurm array jobs."
+            "ReactiveLJ and Liu/O'Connor Tersoff runs."
         )
+    )
+    parser.add_argument(
+        "--source",
+        choices=["resource_logs", "sacct"],
+        default="resource_logs",
+        help="Read memory from wrapper resource logs by default, or from Slurm accounting.",
     )
     parser.add_argument(
         "--epsilons",
@@ -89,6 +103,16 @@ def parse_args() -> argparse.Namespace:
         help="Glob used to infer Tersoff job IDs when --tersoff-job-ids is omitted.",
     )
     parser.add_argument(
+        "--reactive-resource-glob",
+        default="logs/reactive_lj_resource_*_summary.txt",
+        help="Glob for ReactiveLJ resource summary logs.",
+    )
+    parser.add_argument(
+        "--tersoff-resource-glob",
+        default="logs/tersoff_resource_*_summary.txt",
+        help="Glob for Tersoff resource summary logs.",
+    )
+    parser.add_argument(
         "--output-path",
         default="plots/memory_bar_comparison.svg",
         help="Output plot path.",
@@ -113,6 +137,104 @@ def _infer_job_ids(log_glob: str) -> list[str]:
         if match is not None:
             counts[match.group("job_id")] += 1
     return [job_id for job_id, _count in counts.most_common()]
+
+
+def _parse_key_value_log(path: str) -> dict[str, str]:
+    values: dict[str, str] = {}
+    with open(path, "r", encoding="utf-8", errors="replace") as handle:
+        for raw_line in handle:
+            line = raw_line.strip()
+            if not line or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            values[key] = value
+    return values
+
+
+def _optional_float(value: str | None) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+
+def _optional_int(value: str | None) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
+def _job_task_from_resource_summary(
+    path: str,
+    values: dict[str, str],
+) -> tuple[str, int] | None:
+    job_id = values.get("Resource_job_id")
+    task_id = _optional_int(values.get("Resource_task_id"))
+    if job_id is not None and task_id is not None:
+        return job_id, task_id
+
+    match = RESOURCE_SUMMARY_RE.search(os.path.basename(path))
+    if match is None:
+        return None
+    return match.group("job_id"), int(match.group("task_id"))
+
+
+def _sample_from_resource_summary(
+    path: str,
+    fallback_model: str,
+) -> AccountingSample | None:
+    values = _parse_key_value_log(path)
+    exit_status = values.get("Python_exit_status")
+    if exit_status != "0":
+        return None
+
+    epsilon = _optional_float(values.get("Resource_epsilon"))
+    if epsilon is None:
+        return None
+
+    job_task = _job_task_from_resource_summary(path, values)
+    if job_task is None:
+        return None
+    array_job_id, array_task_id = job_task
+
+    model = RESOURCE_MODEL_LABELS.get(values.get("Resource_model", ""), fallback_model)
+    max_rss_mib = _optional_float(values.get("Host_memory_peak_mib"))
+    gpu_mem_mib = _optional_float(values.get("Gpu_memory_peak_mib"))
+    if max_rss_mib is None and gpu_mem_mib is None:
+        return None
+
+    return AccountingSample(
+        model=model,
+        epsilon=epsilon,
+        array_job_id=array_job_id,
+        array_task_id=array_task_id,
+        state="COMPLETED",
+        node_list=values.get("CUDA_VISIBLE_DEVICES", ""),
+        max_rss_mib=max_rss_mib,
+        gpu_mem_mib=gpu_mem_mib,
+        source_path=path,
+    )
+
+
+def collect_resource_log_samples(
+    reactive_glob: str,
+    tersoff_glob: str,
+) -> list[AccountingSample]:
+    samples: list[AccountingSample] = []
+    for path in sorted(glob.glob(reactive_glob)):
+        sample = _sample_from_resource_summary(path, fallback_model="ReactiveLJ")
+        if sample is not None:
+            samples.append(sample)
+    for path in sorted(glob.glob(tersoff_glob)):
+        sample = _sample_from_resource_summary(path, fallback_model="Tersoff")
+        if sample is not None:
+            samples.append(sample)
+    return samples
 
 
 def _run_sacct(job_ids: list[str]) -> list[dict[str, str]]:
@@ -307,6 +429,7 @@ def dump_samples_csv(path: str, samples: list[AccountingSample]) -> None:
                 "node_list",
                 "max_rss_mib",
                 "gpu_mem_mib",
+                "source_path",
             ]
         )
         for sample in samples:
@@ -320,6 +443,7 @@ def dump_samples_csv(path: str, samples: list[AccountingSample]) -> None:
                     sample.node_list,
                     sample.max_rss_mib,
                     sample.gpu_mem_mib,
+                    sample.source_path,
                 ]
             )
 
@@ -401,7 +525,7 @@ def _plot_metric(
     ax.set_xticks(bases)
     ax.set_xticklabels([f"{eps:g}" for eps in epsilons], fontsize=8)
     ax.tick_params(axis="y", labelsize=8)
-    ax.set_xlabel(r"ReactiveLJ $\varepsilon$", fontsize=10)
+    ax.set_xlabel(r"$\varepsilon_\mathrm{RLJ}$", fontsize=10)
     ax.set_ylabel(ylabel, fontsize=10)
     ax.format(
         xspineloc="both",
@@ -469,38 +593,63 @@ def main() -> None:
     script_dir = os.path.dirname(os.path.abspath(__file__))
     reactive_glob = os.path.abspath(os.path.join(script_dir, args.reactive_log_glob))
     tersoff_glob = os.path.abspath(os.path.join(script_dir, args.tersoff_log_glob))
+    reactive_resource_glob = os.path.abspath(
+        os.path.join(script_dir, args.reactive_resource_glob)
+    )
+    tersoff_resource_glob = os.path.abspath(
+        os.path.join(script_dir, args.tersoff_resource_glob)
+    )
     output_path = os.path.abspath(os.path.join(script_dir, args.output_path))
     samples_csv = os.path.abspath(os.path.join(script_dir, args.samples_csv))
 
-    reactive_job_ids = args.reactive_job_ids or _infer_job_ids(reactive_glob)
-    tersoff_job_ids = args.tersoff_job_ids or _infer_job_ids(tersoff_glob)
-    if not reactive_job_ids:
-        raise RuntimeError("No ReactiveLJ job IDs provided or inferred from logs.")
-    if not tersoff_job_ids:
-        raise RuntimeError("No Tersoff job IDs provided or inferred from logs.")
+    if args.source == "resource_logs":
+        samples = collect_resource_log_samples(
+            reactive_glob=reactive_resource_glob,
+            tersoff_glob=tersoff_resource_glob,
+        )
+        gpu_label = args.gpu_label
+        reactive_job_ids: list[str] = []
+        tersoff_job_ids: list[str] = []
+    else:
+        reactive_job_ids = args.reactive_job_ids or _infer_job_ids(reactive_glob)
+        tersoff_job_ids = args.tersoff_job_ids or _infer_job_ids(tersoff_glob)
+        if not reactive_job_ids:
+            raise RuntimeError("No ReactiveLJ job IDs provided or inferred from logs.")
+        if not tersoff_job_ids:
+            raise RuntimeError("No Tersoff job IDs provided or inferred from logs.")
 
-    job_id_to_model = {job_id: "ReactiveLJ" for job_id in reactive_job_ids}
-    job_id_to_model.update({job_id: "Tersoff" for job_id in tersoff_job_ids})
+        job_id_to_model = {job_id: "ReactiveLJ" for job_id in reactive_job_ids}
+        job_id_to_model.update({job_id: "Tersoff" for job_id in tersoff_job_ids})
 
-    rows = _run_sacct(reactive_job_ids + tersoff_job_ids)
-    samples = _samples_from_rows(
-        rows=rows,
-        job_id_to_model=job_id_to_model,
-        epsilons=[float(eps) for eps in args.epsilons],
-        n_rep=args.n_rep,
-    )
+        rows = _run_sacct(reactive_job_ids + tersoff_job_ids)
+        samples = _samples_from_rows(
+            rows=rows,
+            job_id_to_model=job_id_to_model,
+            epsilons=[float(eps) for eps in args.epsilons],
+            n_rep=args.n_rep,
+        )
+        gpu_label = args.gpu_label or _infer_gpu_label(rows)
 
-    gpu_label = args.gpu_label or _infer_gpu_label(rows)
+    if not samples:
+        raise RuntimeError(
+            "No completed resource samples were parsed. Check that the Slurm jobs "
+            "finished and that *_resource_*_summary.txt files contain Python_exit_status=0."
+        )
 
     dump_samples_csv(samples_csv, samples)
     plot_samples(output_path, samples, [float(eps) for eps in args.epsilons], gpu_label=gpu_label)
 
     reactive_count = sum(sample.model == "ReactiveLJ" for sample in samples)
     tersoff_count = sum(sample.model == "Tersoff" for sample in samples)
-    print(f"ReactiveLJ job IDs: {', '.join(reactive_job_ids)}")
-    print(f"Tersoff job IDs: {', '.join(tersoff_job_ids)}")
+    if args.source == "sacct":
+        print(f"ReactiveLJ job IDs: {', '.join(reactive_job_ids)}")
+        print(f"Tersoff job IDs: {', '.join(tersoff_job_ids)}")
+    else:
+        print(f"ReactiveLJ resource glob: {reactive_resource_glob}")
+        print(f"Tersoff resource glob: {tersoff_resource_glob}")
     print(f"GPU label: {gpu_label or 'not inferred'}")
-    print(f"Parsed completed batch samples: ReactiveLJ={reactive_count}, Tersoff={tersoff_count}")
+    sample_source_label = "resource-log" if args.source == "resource_logs" else "Slurm accounting"
+    print(f"Parsed completed {sample_source_label} samples: ReactiveLJ={reactive_count}, Tersoff={tersoff_count}")
     print(f"Wrote sample table: {samples_csv}")
     print(f"Wrote plot: {output_path}")
 

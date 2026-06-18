@@ -16,19 +16,30 @@ Path(os.environ["MPLCONFIGDIR"]).mkdir(parents=True, exist_ok=True)
 Path(os.environ["XDG_CACHE_HOME"]).mkdir(parents=True, exist_ok=True)
 
 import matplotlib
+import matplotlib.ticker as mticker
 import numpy as np
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
+import ultraplot as uplt
 
 
-DEFAULT_FIGSIZE = (3.3, 2.0)
+POINTS_PER_INCH = 72.0
+FIGURE_WIDTH_PT = 237.6
+FIGURE_HEIGHT_PT = 144.0
+AXES_LEFT_PT = 35.369779
+AXES_BOTTOM_PT = 27.66
+AXES_WIDTH_PT = 197.730221
+AXES_HEIGHT_PT = 108.9
+DEFAULT_FIGSIZE = (
+    FIGURE_WIDTH_PT / POINTS_PER_INCH,
+    FIGURE_HEIGHT_PT / POINTS_PER_INCH,
+)
 DEFAULT_DPI = 1000
 DEFAULT_TICK_FONTSIZE = 8
 DEFAULT_LABEL_FONTSIZE = 10
 DEFAULT_OUTPUT_NAME = "gelation_epsilon_vs_epsilon.svg"
 BAR_COLOR = "#e77500"
-EDGE_COLOR = "#121212"
+EDGE_COLOR = "black"
 
 
 def parse_args() -> argparse.Namespace:
@@ -53,6 +64,17 @@ def parse_args() -> argparse.Namespace:
 
 def epsilon_category_labels(epsilon: np.ndarray) -> list[str]:
     return ["None" if np.isclose(value, 0.0) else f"{value:g}" for value in epsilon]
+
+
+def set_target_axes_position(ax) -> None:
+    ax.set_position(
+        [
+            AXES_LEFT_PT / FIGURE_WIDTH_PT,
+            AXES_BOTTOM_PT / FIGURE_HEIGHT_PT,
+            AXES_WIDTH_PT / FIGURE_WIDTH_PT,
+            AXES_HEIGHT_PT / FIGURE_HEIGHT_PT,
+        ]
+    )
 
 
 def summarize_replicate_points(
@@ -147,7 +169,8 @@ def write_gelation_epsilon_plot(
     gelation_mean = gelation_mean[order]
     gelation_stderr = gelation_stderr[order]
 
-    fig, ax = plt.subplots(figsize=DEFAULT_FIGSIZE, dpi=DEFAULT_DPI)
+    fig, ax = uplt.subplots(figsize=DEFAULT_FIGSIZE, dpi=DEFAULT_DPI, tight=False)
+    set_target_axes_position(ax)
     x = np.arange(epsilon.size, dtype=np.float64)
     ax.bar(
         x,
@@ -155,19 +178,27 @@ def write_gelation_epsilon_plot(
         width=0.62,
         color=BAR_COLOR,
         edgecolor=EDGE_COLOR,
-        linewidth=0.7,
+        linewidth=0.5,
     )
     ax.set_ylim(bottom=0.0)
-    ax.set_xlabel(r"$\varepsilon_\mathrm{reactiveLJ}$", fontsize=DEFAULT_LABEL_FONTSIZE)
+    ax.set_xlabel(r"$\varepsilon_\mathrm{RLJ}/\varepsilon_0$", fontsize=DEFAULT_LABEL_FONTSIZE)
     ax.set_ylabel(r"$\mathcal{E}$", fontsize=DEFAULT_LABEL_FONTSIZE)
     ax.set_xticks(x)
     ax.set_xticklabels(epsilon_category_labels(epsilon))
     ax.set_xlim(-0.5, epsilon.size - 0.5)
+    ax.xaxis.set_minor_locator(mticker.NullLocator())
+    ax.format(
+        xspineloc="both",
+        yspineloc="both",
+        ytickloc="both",
+        tickdir="in",
+        grid=False,
+    )
     ax.tick_params(axis="both", which="both", labelsize=DEFAULT_TICK_FONTSIZE)
-    ax.grid(alpha=0.2, axis="y")
-    fig.tight_layout()
+    ax.tick_params(axis="x", which="both", length=0, top=False, bottom=False)
+    set_target_axes_position(ax)
     fig.savefig(output_path)
-    plt.close(fig)
+    uplt.close(fig)
 
     print(f"Wrote gelation-epsilon plot to {output_path}", flush=True)
 

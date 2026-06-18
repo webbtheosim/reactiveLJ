@@ -290,7 +290,7 @@ def main() -> None:
     ax.set_xticklabels([f"{eps:g}" for eps in epsilons], fontsize=8)
     ax.tick_params(axis="y", labelsize=8)
 
-    ax.set_xlabel(r"ReactiveLJ $\varepsilon$", fontsize=10)
+    ax.set_xlabel(r"$\varepsilon_\mathrm{RLJ}$", fontsize=10)
     ylabel = {
         "tau_per_day": r"Simulation Throughput ($\tau$/day)",
         "timesteps_per_day": "Simulation Throughput (timesteps/day)",

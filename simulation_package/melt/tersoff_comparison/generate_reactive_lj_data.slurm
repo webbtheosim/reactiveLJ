@@ -5,7 +5,7 @@
 #SBATCH --time=01:02:00
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=1G
-#SBATCH --array=0-39%24
+#SBATCH --array=0-39%5
 #SBATCH --output=/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/simulation_package/melt/tersoff_comparison/logs/generate_reactive_lj_data_%A_%a.out
 
 # NOTE:
@@ -29,6 +29,7 @@ COMPARISON_DIR="$(cd "${COMPARISON_DIR}" && pwd)"
 WORK_DIR="$(cd "${COMPARISON_DIR}/.." && pwd)"
 cd "${WORK_DIR}"
 mkdir -p "${COMPARISON_DIR}/logs"
+source "${COMPARISON_DIR}/slurm_resource_logging.sh"
 
 EPSILONS=(6 12 15 18)
 N_REP=${N_REP:-10}
@@ -52,7 +53,9 @@ REP_INDEX=$(( TASK_ID % N_REP ))
 EPS=${EPSILONS[$EPS_INDEX]}
 REP=$(( REP_INDEX + 1 ))
 
-python "${COMPARISON_DIR}/generate_reactive_lj_data.py" \
+resource_logging_init "${COMPARISON_DIR}/logs" "reactive_lj" "${EPS}" "${REP}"
+
+resource_run_command python "${COMPARISON_DIR}/generate_reactive_lj_data.py" \
     --epsilon "${EPS}" \
     --replicate "${REP}" \
     --output-root "${OUTPUT_ROOT}" \

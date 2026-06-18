@@ -18,11 +18,14 @@ Path(os.environ["XDG_CACHE_HOME"]).mkdir(parents=True, exist_ok=True)
 
 import gsd.hoomd
 import matplotlib
+import matplotlib.cbook as cbook
+import matplotlib.mlab as mlab
+import matplotlib.ticker as mticker
 import numpy as np
 from joblib import Parallel, delayed
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
+import ultraplot as uplt
 
 
 FIGSIZE = (3.3 / 2.0, 3.3 / 2.0)
@@ -31,6 +34,19 @@ LABEL_FONTSIZE = 10
 TICK_FONTSIZE = 8
 VIOLIN_FILL = "#e77500"
 OUTLINE_COLOR = "#121212"
+POINTS_PER_INCH = 72.0
+FIGURE_WIDTH_PT = 118.8
+FIGURE_HEIGHT_PT = 118.8
+AXES_LEFT_PT = 49.349
+AXES_BOTTOM_PT = 39.224
+AXES_WIDTH_PT = 58.651
+AXES_HEIGHT_PT = 57.5412
+WIDE_FIGURE_WIDTH_PT = 237.6
+WIDE_FIGURE_HEIGHT_PT = 72.0
+WIDE_AXES_LEFT_PT = 35.369779
+WIDE_AXES_BOTTOM_PT = 22.0
+WIDE_AXES_WIDTH_PT = 197.730221
+WIDE_AXES_HEIGHT_PT = 40.0
 
 
 def parse_args() -> argparse.Namespace:
@@ -219,46 +235,238 @@ def analyze_trajectory(
     )
 
 
+def paired_fraction_transform_epsilon(grouped_data: list[tuple[int, np.ndarray]]) -> float:
+    finite_values = np.concatenate(
+        [np.asarray(values, dtype=np.float64)[np.isfinite(values)] for _, values in grouped_data]
+    )
+    below_one = finite_values[finite_values < (1.0 - 1.0e-12)]
+    if below_one.size == 0:
+        return 1.0e-3
+    smallest_gap = float(np.min(1.0 - below_one))
+    return max(0.5 * smallest_gap, 1.0e-6)
+
+
+def stretch_near_one(values: np.ndarray, epsilon: float) -> np.ndarray:
+    arr = np.asarray(values, dtype=np.float64)
+    clipped = np.minimum(arr, 1.0 - epsilon)
+    return -np.log10(1.0 - clipped)
+
+
+def paired_fraction_tick_spec(epsilon: float) -> tuple[np.ndarray, list[str]]:
+    tick_values = np.asarray([0.0, 0.9, 0.99, 1.0 - epsilon], dtype=np.float64)
+    tick_positions = stretch_near_one(tick_values, epsilon)
+    tick_labels = ["0", "0.9", "0.99", "1"]
+    return tick_positions, tick_labels
+
+
+def symlog_tick_labels(values: np.ndarray) -> list[str]:
+    labels: list[str] = []
+    for value in np.asarray(values, dtype=np.float64):
+        if np.isclose(value, 0.0):
+            labels.append("0")
+            continue
+        exponent = int(np.round(np.log10(abs(float(value)))))
+        if exponent == 0:
+            labels.append("1")
+        elif exponent == 1:
+            labels.append("10")
+        else:
+            labels.append(rf"$10^{{{exponent}}}$")
+    return labels
+
+
 def make_violin_plot(
     grouped_data: list[tuple[int, np.ndarray]],
     output_path: Path,
     y_label: str,
     y_limits: tuple[float, float] | None = None,
+    *,
+    figure_width_pt: float = FIGURE_WIDTH_PT,
+    figure_height_pt: float = FIGURE_HEIGHT_PT,
+    axes_left_pt: float = AXES_LEFT_PT,
+    axes_bottom_pt: float = AXES_BOTTOM_PT,
+    axes_width_pt: float = AXES_WIDTH_PT,
+    axes_height_pt: float = AXES_HEIGHT_PT,
+    y_ticks: np.ndarray | None = None,
+    y_tick_labels: list[str] | None = None,
 ) -> None:
-    positions = [item[0] for item in grouped_data]
-    datasets = [item[1] for item in grouped_data]
+    def set_target_axes_position(ax) -> None:
+        ax.set_position(
+            [
+                axes_left_pt / figure_width_pt,
+                axes_bottom_pt / figure_height_pt,
+                axes_width_pt / figure_width_pt,
+                axes_height_pt / figure_height_pt,
+            ]
+        )
 
-    fig, ax = plt.subplots(figsize=FIGSIZE, dpi=DPI)
-    violin = ax.violinplot(
-        datasets,
-        positions=positions,
-        widths=0.8,
-        showmeans=False,
-        showmedians=False,
-        showextrema=False,
+    category_values = [item[0] for item in grouped_data]
+    positions = np.arange(len(grouped_data), dtype=np.float64)
+    datasets = [item[1] for item in grouped_data]
+    finite_values = np.concatenate(
+        [np.asarray(values, dtype=np.float64)[np.isfinite(values)] for values in datasets]
     )
 
-    for body in violin["bodies"]:
-        body.set_facecolor(VIOLIN_FILL)
-        body.set_edgecolor(OUTLINE_COLOR)
-        body.set_linewidth(0.8)
-        body.set_alpha(1.0)
+    fig, axs = uplt.subplots(
+        figsize=(figure_width_pt / POINTS_PER_INCH, figure_height_pt / POINTS_PER_INCH),
+        dpi=DPI,
+        tight=False,
+    )
+    ax = axs[0]
+    set_target_axes_position(ax)
+    def kde_method(values: np.ndarray, coords: np.ndarray) -> np.ndarray:
+        values = cbook._unpack_to_numpy(values)
+        if np.all(values[0] == values):
+            return (values[0] == coords).astype(float)
+        kde = mlab.GaussianKDE(values, "scott")
+        return kde.evaluate(coords)
+
+    violin_stats = cbook.violin_stats(datasets, kde_method, points=100)
+    max_width = 0.8
+    for position, stats in zip(positions, violin_stats):
+        vals = np.asarray(stats["vals"], dtype=np.float64)
+        coords = np.asarray(stats["coords"], dtype=np.float64)
+        if vals.size == 0 or coords.size == 0:
+            continue
+        peak = float(np.max(vals))
+        if not np.isfinite(peak) or peak <= 0.0:
+            continue
+        half_width = 0.5 * max_width * vals / peak
+        left = position - half_width
+        right = position + half_width
+        ax.fill_betweenx(
+            coords,
+            left,
+            right,
+            facecolor=VIOLIN_FILL,
+            edgecolor=OUTLINE_COLOR,
+            linewidth=0.8,
+            alpha=1.0,
+            zorder=2,
+        )
 
     ax.set_xlabel(r"$p$", fontsize=LABEL_FONTSIZE)
     ax.set_ylabel(y_label, fontsize=LABEL_FONTSIZE)
     ax.set_xticks(positions)
-    ax.set_xticklabels([str(value) for value in positions])
+    ax.set_xticklabels([str(value) for value in category_values])
     if y_limits is not None:
         ax.set_ylim(*y_limits)
+    elif finite_values.size > 0:
+        y_min = float(np.min(finite_values))
+        y_max = float(np.max(finite_values))
+        if np.isclose(y_min, y_max):
+            pad = 0.05 * max(abs(y_max), 1.0)
+        else:
+            pad = 0.04 * (y_max - y_min)
+        y_lower = y_min - pad
+        y_upper = y_max + pad
+        ax.set_ylim(y_lower, y_upper)
+    if y_ticks is not None:
+        ax.set_yticks(y_ticks)
+        if y_tick_labels is not None:
+            ax.set_yticklabels(y_tick_labels)
+    ax.format(
+        xspineloc="both",
+        yspineloc="both",
+        xtickloc="both",
+        ytickloc="both",
+        tickdir="in",
+        grid=False,
+    )
     ax.tick_params(axis="both", which="both", labelsize=TICK_FONTSIZE, colors=OUTLINE_COLOR)
+    ax.tick_params(axis="x", which="both", length=0)
     for spine in ax.spines.values():
         spine.set_color(OUTLINE_COLOR)
         spine.set_linewidth(0.8)
 
-    fig.tight_layout()
+    set_target_axes_position(ax)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path, format="svg")
-    plt.close(fig)
+    uplt.close(fig)
+
+
+def make_mean_bar_plot(
+    grouped_data: list[tuple[int, np.ndarray]],
+    output_path: Path,
+    y_label: str,
+    *,
+    figure_width_pt: float,
+    figure_height_pt: float,
+    axes_left_pt: float,
+    axes_bottom_pt: float,
+    axes_width_pt: float,
+    axes_height_pt: float,
+) -> None:
+    def set_target_axes_position(ax) -> None:
+        ax.set_position(
+            [
+                axes_left_pt / figure_width_pt,
+                axes_bottom_pt / figure_height_pt,
+                axes_width_pt / figure_width_pt,
+                axes_height_pt / figure_height_pt,
+            ]
+        )
+
+    category_values = [item[0] for item in grouped_data]
+    means = np.asarray(
+        [float(np.mean(np.asarray(values, dtype=np.float64))) for _, values in grouped_data],
+        dtype=np.float64,
+    )
+    x = np.arange(len(grouped_data), dtype=np.float64)
+
+    positive_means = means[means > 0.0]
+    linthresh = 1.0e-4
+    if positive_means.size > 0:
+        linthresh = min(linthresh, float(np.min(positive_means)))
+    upper = float(np.max(means)) if means.size else 1.0
+    upper = max(upper * 1.2, linthresh * 10.0)
+
+    fig, axs = uplt.subplots(
+        figsize=(figure_width_pt / POINTS_PER_INCH, figure_height_pt / POINTS_PER_INCH),
+        dpi=DPI,
+        tight=False,
+    )
+    ax = axs[0]
+    set_target_axes_position(ax)
+    ax.bar(
+        x,
+        means,
+        width=0.62,
+        color=VIOLIN_FILL,
+        edgecolor=OUTLINE_COLOR,
+        linewidth=0.5,
+        zorder=3,
+    )
+    ax.set_xlabel(r"$p$", fontsize=LABEL_FONTSIZE)
+    ax.set_ylabel(y_label, fontsize=LABEL_FONTSIZE)
+    ax.set_xticks(x)
+    ax.set_xticklabels([str(value) for value in category_values])
+    ax.set_xlim(-0.5, len(grouped_data) - 0.5)
+    ax.set_yscale("symlog", linthresh=linthresh, linscale=1.0, base=10.0)
+    ax.set_ylim(0.0, upper)
+    tick_values = np.asarray([0.0, 1.0e-4, 1.0e-3, 1.0e-2, 1.0e-1, 1.0, 10.0], dtype=np.float64)
+    tick_values = tick_values[tick_values <= upper * 1.0001]
+    ax.yaxis.set_major_locator(mticker.FixedLocator(tick_values))
+    ax.yaxis.set_major_formatter(mticker.FixedFormatter(symlog_tick_labels(tick_values)))
+    ax.yaxis.set_minor_locator(mticker.NullLocator())
+    ax.format(
+        xspineloc="both",
+        yspineloc="both",
+        xtickloc="both",
+        ytickloc="both",
+        tickdir="in",
+        grid=False,
+    )
+    ax.tick_params(axis="both", which="both", labelsize=TICK_FONTSIZE, colors=OUTLINE_COLOR)
+    ax.tick_params(axis="x", which="both", length=0)
+    for spine in ax.spines.values():
+        spine.set_color(OUTLINE_COLOR)
+        spine.set_linewidth(0.8)
+
+    set_target_axes_position(ax)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, format="svg")
+    uplt.close(fig)
 
 
 def main() -> None:
@@ -322,10 +530,24 @@ def main() -> None:
                 f"mean_paired_fraction={np.mean(fractions):.6f}",
                 flush=True,
             )
+        paired_epsilon = paired_fraction_transform_epsilon(paired_grouped_data)
+        paired_plot_data = [
+            (p_value, stretch_near_one(fractions, paired_epsilon))
+            for p_value, fractions in paired_grouped_data
+        ]
+        paired_y_ticks, paired_y_tick_labels = paired_fraction_tick_spec(paired_epsilon)
         make_violin_plot(
-            paired_grouped_data,
+            paired_plot_data,
             args.paired_output,
-            y_label="Paired fraction",
+            y_label=r"$\phi_{\mathrm{pair}}$",
+            figure_width_pt=WIDE_FIGURE_WIDTH_PT,
+            figure_height_pt=WIDE_FIGURE_HEIGHT_PT,
+            axes_left_pt=WIDE_AXES_LEFT_PT,
+            axes_bottom_pt=WIDE_AXES_BOTTOM_PT,
+            axes_width_pt=WIDE_AXES_WIDTH_PT,
+            axes_height_pt=WIDE_AXES_HEIGHT_PT,
+            y_ticks=paired_y_ticks,
+            y_tick_labels=paired_y_tick_labels,
         )
         print(f"Wrote paired-fraction plot to {args.paired_output}", flush=True)
 
@@ -336,10 +558,16 @@ def main() -> None:
                 f"mean_excess_coordination={np.mean(values):.6f}",
                 flush=True,
             )
-        make_violin_plot(
+        make_mean_bar_plot(
             excess_coordination_grouped_data,
             args.excess_coordination_output,
-            y_label="Excess coordination",
+            y_label=r"$\langle C_{ij}^{\mathrm{exc}} \rangle$",
+            figure_width_pt=WIDE_FIGURE_WIDTH_PT,
+            figure_height_pt=WIDE_FIGURE_HEIGHT_PT,
+            axes_left_pt=WIDE_AXES_LEFT_PT,
+            axes_bottom_pt=WIDE_AXES_BOTTOM_PT,
+            axes_width_pt=WIDE_AXES_WIDTH_PT,
+            axes_height_pt=WIDE_AXES_HEIGHT_PT,
         )
         print(
             f"Wrote excess-coordination plot to {args.excess_coordination_output}",

@@ -16,6 +16,7 @@ Path(os.environ["MPLCONFIGDIR"]).mkdir(parents=True, exist_ok=True)
 Path(os.environ["XDG_CACHE_HOME"]).mkdir(parents=True, exist_ok=True)
 
 import matplotlib
+import matplotlib.ticker as mticker
 import numpy as np
 
 matplotlib.use("Agg")
@@ -24,7 +25,7 @@ import ultraplot as uplt
 
 DEFAULT_FIGSIZE = (3.3, 1.5)
 DEFAULT_DPI = 1000
-DEFAULT_TICK_FONTSIZE = 8
+DEFAULT_TICK_FONTSIZE = 10
 DEFAULT_LABEL_FONTSIZE = 10
 DEFAULT_OUTPUT_NAME = "brachiation_tau_vs_epsilon.svg"
 BAR_COLOR = "#e77500"
@@ -59,7 +60,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def epsilon_category_labels(epsilon: np.ndarray) -> list[str]:
-    return ["None" if np.isclose(value, 0.0) else f"{value:g}" for value in epsilon]
+    return ["WCA" if np.isclose(value, 0.0) else f"{value:g}" for value in epsilon]
 
 
 def summarize_replicate_points(
@@ -170,8 +171,12 @@ def write_brachiation_tau_plot(
     )
     ax.set_yscale("log")
     ax.set_ylim(y_min, y_max)
-    ax.set_xlabel(r"$\varepsilon_\mathrm{reactiveLJ}$", fontsize=DEFAULT_LABEL_FONTSIZE)
-    ax.set_ylabel(r"$\tau_b$", fontsize=DEFAULT_LABEL_FONTSIZE)
+    ax.set_xlabel(
+        r"Sticker strength, $\varepsilon_\mathrm{RLJ}/\varepsilon_0$",
+        fontsize=DEFAULT_LABEL_FONTSIZE,
+    )
+    ax.set_ylabel(r"Brachiation time, $\tau_b$", fontsize=DEFAULT_LABEL_FONTSIZE)
+    ax.yaxis.set_major_formatter(mticker.LogFormatterSciNotation(base=10.0))
     ax.set_xticks(x)
     ax.set_xticklabels(epsilon_category_labels(epsilon))
     ax.format(
@@ -184,6 +189,8 @@ def write_brachiation_tau_plot(
     )
     ax.tick_params(axis="both", which="both", labelsize=DEFAULT_TICK_FONTSIZE)
     ax.tick_params(axis="x", which="both", length=0)
+    ax.xaxis.get_offset_text().set_fontsize(DEFAULT_TICK_FONTSIZE)
+    ax.yaxis.get_offset_text().set_fontsize(DEFAULT_TICK_FONTSIZE)
     for spine in ax.spines.values():
         spine.set_color(EDGE_COLOR)
         spine.set_linewidth(0.8)

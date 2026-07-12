@@ -35,7 +35,7 @@ DEFAULT_FIGSIZE = (
     FIGURE_HEIGHT_PT / POINTS_PER_INCH,
 )
 DEFAULT_DPI = 1000
-DEFAULT_TICK_FONTSIZE = 8
+DEFAULT_TICK_FONTSIZE = 10
 DEFAULT_LABEL_FONTSIZE = 10
 DEFAULT_OUTPUT_NAME = "sticky_bond_lifetime_vs_epsilon.svg"
 DEFAULT_TAU_R0 = 4041.0
@@ -43,6 +43,8 @@ MIN_RESOLVED_EPSILON = 12.0
 BAR_COLOR = "#e77500"
 BAR_EDGE_COLOR = "black"
 BAR_WIDTH = 0.62
+X_AXIS_LABEL = r"Sticker strength, $\varepsilon_\mathrm{RLJ}/\varepsilon_0$"
+Y_AXIS_LABEL = r"Bond lifetime, $\tau_s/\tau_R^{(0)}$"
 LEGACY_OUTPUT_NAMES = (
     "ln_bond_tau_vs_epsilon.png",
     "ln_bond_tau_vs_epsilon.svg",
@@ -201,8 +203,8 @@ def main() -> None:
     ax.set_yscale("log")
     ax.set_ylim(y_floor, float(np.max(tau_s_normalized) * 1.3))
     ax.set_xlim(-0.5, category_epsilon.size - 0.5)
-    ax.set_xlabel(r"$\varepsilon_\mathrm{RLJ}/\varepsilon_0$", fontsize=DEFAULT_LABEL_FONTSIZE)
-    ax.set_ylabel(r"$\tau_s/\tau_R^{(0)}$", fontsize=DEFAULT_LABEL_FONTSIZE)
+    ax.set_xlabel(X_AXIS_LABEL, fontsize=DEFAULT_LABEL_FONTSIZE)
+    ax.set_ylabel(Y_AXIS_LABEL, fontsize=DEFAULT_LABEL_FONTSIZE)
     ax.set_xticks(category_x)
     ax.set_xticklabels(epsilon_category_labels(category_epsilon))
     ax.xaxis.set_minor_locator(mticker.NullLocator())

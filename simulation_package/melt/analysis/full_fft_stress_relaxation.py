@@ -2,10 +2,11 @@
 """Compute full-FFT stress relaxation curves for ReactiveLJ melt runs.
 
 This standalone script reads every ``virial_tensor_log.gsd`` under an input
-root, computes the shear-stress autocovariance from the off-diagonal tensor
-components with an unbiased full FFT estimator at every native lag, aggregates
-replicates by ``(epsilon, p)``, and writes a direct-lag plot using the same
-styling as the current stress-modulus analysis plot.
+root, computes the shear-stress autocorrelation from the off-diagonal tensor
+components with an unbiased masked full-FFT estimator at every native lag,
+combines dense extensions with the long base trajectories at matching lags,
+aggregates replicates by ``(epsilon, p)``, and writes a direct-lag plot using
+the same styling as the current stress-modulus analysis plot.
 """
 
 from __future__ import annotations
@@ -56,9 +57,12 @@ DEFAULT_FIGSIZE = (
     FIGURE_HEIGHT_PT / POINTS_PER_INCH,
 )
 DEFAULT_DPI = 1000
-DEFAULT_TICK_FONTSIZE = 8
+DEFAULT_TICK_FONTSIZE = 10
 DEFAULT_LABEL_FONTSIZE = 10
+STRESS_X_AXIS_LABEL = r"Lag time, $\tau / \tau_R^{(0)}$"
+STRESS_Y_AXIS_LABEL = r"$G$"
 ConditionKey = Tuple[float, float]
+ReplicateKey = Tuple[float, float, int]
 
 # Match the Liu/O'Connor Green-Kubo estimator: average only shear components
 # with alpha != beta (xy, xz, yz).
@@ -90,6 +94,7 @@ class ReplicateResult:
     n_samples: int
     n_segments: int
     longest_segment_samples: int
+    regular_grid_samples: int
     max_lag: int
 
 
@@ -131,7 +136,8 @@ def parse_args() -> argparse.Namespace:
         default=melt_dir / "data_generation" / "outputs_virial_extended",
         help=(
             "Optional mirrored root containing short dense virial extensions. "
-            "When present, these curves are stitched into the short-time region."
+            "When present, these are combined with base estimates at matching "
+            "short-time lags."
         ),
     )
     parser.add_argument(
@@ -144,9 +150,27 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=DEFAULT_EXTENSION_STITCH_TIME,
         help=(
-            "Lag time in tau_LJ at which to switch from dense extension curves "
-            "to the original long production curves. Default: 25 tau_LJ, "
-            "the first native lag of the base virial logs."
+            "Legacy hard-crossover time in tau_LJ. Used only when explicit "
+            "--extension-blend-start-time and --extension-blend-end-time are "
+            "not provided."
+        ),
+    )
+    parser.add_argument(
+        "--extension-blend-start-time",
+        type=float,
+        default=None,
+        help=(
+            "Lag time in tau_LJ where the dense-extension weight begins a "
+            "raised-cosine taper. Must be used with --extension-blend-end-time."
+        ),
+    )
+    parser.add_argument(
+        "--extension-blend-end-time",
+        type=float,
+        default=None,
+        help=(
+            "Lag time in tau_LJ where the dense-extension weight reaches zero "
+            "and the curve becomes base-only."
         ),
     )
     parser.add_argument(
@@ -286,6 +310,15 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Plot every replicate curve colored by condition instead of only the "
             "aggregate mean curve for each condition."
+        ),
+    )
+    parser.add_argument(
+        "--replicate-sem-points",
+        type=int,
+        default=20,
+        help=(
+            "Number of logarithmically spaced mean +/- replicate-SEM points "
+            "per condition in the diagnostic plot."
         ),
     )
     parser.add_argument(
@@ -592,7 +625,7 @@ def compute_shear_stress_autocovariance_fft(
     virial_arr: np.ndarray,
     max_lag: int,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """Return full-grid unbiased shear-stress autocovariance and counts."""
+    """Return full-grid unbiased shear-stress autocorrelation and counts."""
     return compute_segmented_shear_stress_autocovariance_fft(
         virial_arr,
         [(0, int(virial_arr.shape[0]))],
@@ -600,12 +633,92 @@ def compute_shear_stress_autocovariance_fft(
     )
 
 
+def compute_masked_shear_stress_autocovariance_fft(
+    virial_arr: np.ndarray,
+    sample_steps: np.ndarray,
+    expected_step_delta: int,
+    max_lag: int,
+) -> Tuple[np.ndarray, np.ndarray, int]:
+    """Return autocorrelation on a regular grid while masking missing samples."""
+    if virial_arr.ndim != 2 or virial_arr.shape[0] <= 1 or virial_arr.shape[1] < 6:
+        raise ValueError("virial_arr must have shape (n_samples, >= 6)")
+    if sample_steps.ndim != 1 or sample_steps.size != virial_arr.shape[0]:
+        raise ValueError("sample_steps must be one-dimensional and match virial_arr")
+    if expected_step_delta <= 0:
+        raise ValueError("expected_step_delta must be positive")
+
+    start_step = int(np.min(sample_steps))
+    offsets = sample_steps.astype(np.int64, copy=False) - np.int64(start_step)
+    misaligned = offsets % int(expected_step_delta) != 0
+    if np.any(misaligned):
+        first_bad = int(np.flatnonzero(misaligned)[0])
+        raise ValueError(
+            "Virial samples are not aligned to a single regular timestep grid: "
+            f"sample step {int(sample_steps[first_bad])} is offset from start "
+            f"{start_step} by a non-multiple of {expected_step_delta}."
+        )
+
+    grid_indices = (offsets // int(expected_step_delta)).astype(np.int64, copy=False)
+    unique_indices, inverse = np.unique(grid_indices, return_inverse=True)
+    if unique_indices.size < 2:
+        raise ValueError("Need at least two unique sample times for autocorrelation")
+
+    if unique_indices.size != grid_indices.size:
+        coalesced = np.zeros(
+            (unique_indices.size, virial_arr.shape[1]),
+            dtype=np.float64,
+        )
+        duplicate_counts = np.zeros((unique_indices.size,), dtype=np.float64)
+        np.add.at(coalesced, inverse, virial_arr)
+        np.add.at(duplicate_counts, inverse, 1.0)
+        observed_virial = coalesced / duplicate_counts[:, None]
+        observed_indices = unique_indices
+    else:
+        observed_virial = virial_arr
+        observed_indices = grid_indices
+
+    grid_size = int(np.max(observed_indices)) + 1
+    max_lag = max(1, min(int(max_lag), grid_size - 1))
+
+    components = np.empty((observed_virial.shape[0], 3), dtype=np.float64)
+    components[:, 0] = observed_virial[:, 1]
+    components[:, 1] = observed_virial[:, 2]
+    components[:, 2] = observed_virial[:, 4]
+    # At isotropic equilibrium the ensemble mean of each shear component is zero.
+    # Do not replace that known mean with a finite-record sample mean.
+
+    component_grid = np.zeros((grid_size, 3), dtype=np.float64)
+    mask = np.zeros((grid_size,), dtype=np.float64)
+    component_grid[observed_indices, :] = components
+    mask[observed_indices] = 1.0
+
+    fft_length = 2 * grid_size
+    component_spectrum = np.fft.rfft(component_grid, n=fft_length, axis=0)
+    component_spectrum *= np.conjugate(component_spectrum)
+    acf_sums = np.fft.irfft(component_spectrum, n=fft_length, axis=0)[
+        : max_lag + 1
+    ].real
+
+    mask_spectrum = np.fft.rfft(mask, n=fft_length)
+    mask_spectrum *= np.conjugate(mask_spectrum)
+    counts = np.fft.irfft(mask_spectrum, n=fft_length)[: max_lag + 1].real
+    counts = np.rint(np.maximum(counts, 0.0)).astype(np.float64, copy=False)
+
+    acf_components = np.divide(
+        acf_sums,
+        counts[:, None],
+        out=np.full_like(acf_sums, np.nan),
+        where=counts[:, None] > 0.0,
+    )
+    return acf_components @ STRESS_COMPONENT_WEIGHTS, counts, grid_size
+
+
 def compute_segmented_shear_stress_autocovariance_fft(
     virial_arr: np.ndarray,
     segments: List[Tuple[int, int]],
     max_lag: int,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """Return autocovariance using only pairs inside contiguous segments."""
+    """Return autocorrelation using only pairs inside contiguous segments."""
     if virial_arr.ndim != 2 or virial_arr.shape[0] <= 1 or virial_arr.shape[1] < 6:
         raise ValueError("virial_arr must have shape (n_samples, >= 6)")
 
@@ -629,7 +742,7 @@ def compute_segmented_shear_stress_autocovariance_fft(
     components[:, 0] = xy
     components[:, 1] = xz
     components[:, 2] = yz
-    components -= np.mean(components, axis=0, keepdims=True)
+    # Preserve the zero-ensemble-mean Green-Kubo estimator used above.
 
     acf_sums = np.zeros((max_lag + 1, 3), dtype=np.float64)
     counts = np.zeros((max_lag + 1,), dtype=np.float64)
@@ -695,17 +808,21 @@ def compute_replicate(
     )
     max_time = min(float(stress_max_runtime_fraction) * runtime, float(max_lag_time))
     max_lag = int(np.floor(max_time / sample_dt + 1.0e-12))
-    max_lag = max(1, min(max_lag, longest_segment_samples - 1))
+    max_lag = max(1, max_lag)
 
-    covariance, counts = compute_segmented_shear_stress_autocovariance_fft(
-        virial_arr,
-        usable_segments,
-        max_lag,
+    covariance, counts, regular_grid_samples = (
+        compute_masked_shear_stress_autocovariance_fft(
+            virial_arr,
+            virial_steps,
+            sample_step_delta,
+            max_lag,
+        )
     )
     box_length = resolve_box_length(metadata, run.virial_path.parent, run.virial_path)
     temperature = float(metadata.get("temperature", 1.0))
     modulus = (box_length**3 / temperature) * covariance
-    lags = np.arange(1, max_lag + 1, dtype=np.float64)
+    actual_max_lag = covariance.shape[0] - 1
+    lags = np.arange(1, actual_max_lag + 1, dtype=np.float64)
 
     return ReplicateResult(
         epsilon=run.epsilon,
@@ -719,7 +836,8 @@ def compute_replicate(
         n_samples=virial_arr.shape[0],
         n_segments=len(usable_segments),
         longest_segment_samples=longest_segment_samples,
-        max_lag=max_lag,
+        regular_grid_samples=regular_grid_samples,
+        max_lag=actual_max_lag,
     )
 
 
@@ -750,17 +868,30 @@ def finite_column_stderr(values: np.ndarray) -> np.ndarray:
     return stderr
 
 
-def aggregate_one_condition(
-    condition: ConditionKey, results: List[ReplicateResult]
-) -> AggregateResult:
-    epsilon, weakening_exponent = condition
+def finite_column_mean(values: np.ndarray) -> np.ndarray:
+    finite = np.isfinite(values)
+    counts = np.sum(finite, axis=0)
+    value_sum = np.sum(np.where(finite, values, 0.0), axis=0)
+    return np.divide(
+        value_sum,
+        counts,
+        out=np.full(values.shape[1], np.nan, dtype=np.float64),
+        where=counts > 0,
+    )
+
+
+def align_replicate_results(
+    results: List[ReplicateResult],
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     if not results:
-        raise RuntimeError(
-            f"No replicate results to aggregate for eps={epsilon:g}, p={weakening_exponent:g}"
+        return (
+            np.empty((0,), dtype=np.float64),
+            np.empty((0, 0), dtype=np.float64),
+            np.empty((0, 0), dtype=np.float64),
         )
 
     base_idx = max(range(len(results)), key=lambda idx: results[idx].time.size)
-    base_time = results[base_idx].time
+    base_time = np.asarray(results[base_idx].time, dtype=np.float64)
     values = np.full((len(results), base_time.size), np.nan, dtype=np.float64)
     weights = np.zeros((len(results), base_time.size), dtype=np.float64)
 
@@ -780,15 +911,28 @@ def aggregate_one_condition(
             values[row_idx, insert_idx[valid]] = result.modulus[valid]
             weights[row_idx, insert_idx[valid]] = result.counts[valid]
 
-    populated = np.any(np.isfinite(values), axis=0)
-    if not np.any(populated):
+    populated = np.any(
+        np.isfinite(values) & np.isfinite(weights) & (weights > 0.0),
+        axis=0,
+    )
+    return base_time[populated], values[:, populated], weights[:, populated]
+
+
+def aggregate_one_condition(
+    condition: ConditionKey, results: List[ReplicateResult]
+) -> AggregateResult:
+    epsilon, weakening_exponent = condition
+    if not results:
+        raise RuntimeError(
+            f"No replicate results to aggregate for eps={epsilon:g}, p={weakening_exponent:g}"
+        )
+
+    time, values, weights = align_replicate_results(results)
+    if time.size == 0:
         raise RuntimeError(
             f"No populated time points after aggregation for eps={epsilon:g}, p={weakening_exponent:g}"
         )
 
-    time = base_time[populated]
-    values = values[:, populated]
-    weights = weights[:, populated]
     valid = np.isfinite(values) & np.isfinite(weights) & (weights > 0.0)
     weight_sum = np.sum(np.where(valid, weights, 0.0), axis=0)
     weighted_value_sum = np.sum(np.where(valid, weights * values, 0.0), axis=0)
@@ -820,51 +964,215 @@ def aggregate_replicates(results: List[ReplicateResult]) -> Dict[ConditionKey, A
     }
 
 
-def stitch_extension_aggregates(
-    base_aggregated: Dict[ConditionKey, AggregateResult],
-    extension_aggregated: Dict[ConditionKey, AggregateResult],
-    stitch_time: float,
-) -> Dict[ConditionKey, AggregateResult]:
-    """Use dense extension data before stitch_time and base data at/afterward."""
-    if stitch_time <= 0.0:
-        raise RuntimeError("--extension-stitch-time must be positive.")
+def replicate_key(result: ReplicateResult) -> ReplicateKey:
+    return (
+        float(result.epsilon),
+        float(result.weakening_exponent),
+        int(result.replicate),
+    )
 
-    stitched: Dict[ConditionKey, AggregateResult] = {}
-    for condition, base in sorted(base_aggregated.items()):
-        extension = extension_aggregated.get(condition)
-        if extension is None or extension.time.size == 0:
-            stitched[condition] = base
-            continue
 
-        extension_mask = extension.time < float(stitch_time)
-        base_mask = base.time >= float(stitch_time)
-        if not np.any(extension_mask):
-            stitched[condition] = base
-            continue
+def extension_taper_weight(
+    time: np.ndarray,
+    blend_start_time: float,
+    blend_end_time: float,
+) -> np.ndarray:
+    """Return a raised-cosine extension weight from one to zero."""
+    time_arr = np.asarray(time, dtype=np.float64)
+    if blend_start_time <= 0.0 or blend_end_time <= 0.0:
+        raise RuntimeError("Extension blend times must be positive.")
+    if blend_start_time > blend_end_time:
+        raise RuntimeError("Extension blend start must not exceed blend end.")
+    if math.isclose(
+        blend_start_time,
+        blend_end_time,
+        rel_tol=0.0,
+        abs_tol=1.0e-12,
+    ):
+        return (time_arr < float(blend_end_time)).astype(np.float64)
 
-        time = np.concatenate((extension.time[extension_mask], base.time[base_mask]))
-        mean = np.concatenate((extension.mean[extension_mask], base.mean[base_mask]))
-        stderr = np.concatenate(
-            (extension.stderr[extension_mask], base.stderr[base_mask])
+    weight = np.ones(time_arr.shape, dtype=np.float64)
+    weight[time_arr >= float(blend_end_time)] = 0.0
+    transition = (
+        (time_arr > float(blend_start_time))
+        & (time_arr < float(blend_end_time))
+    )
+    phase = (
+        time_arr[transition] - float(blend_start_time)
+    ) / (float(blend_end_time) - float(blend_start_time))
+    weight[transition] = 0.5 * (1.0 + np.cos(np.pi * phase))
+    return weight
+
+
+def combine_replicate_pair(
+    base: ReplicateResult,
+    extension: ReplicateResult,
+    blend_start_time: float,
+    blend_end_time: float,
+) -> ReplicateResult:
+    """Blend base and extension estimators on the dense lag grid."""
+    if replicate_key(base) != replicate_key(extension):
+        raise RuntimeError(
+            "Cannot combine mismatched replicate results: "
+            f"base={replicate_key(base)}, extension={replicate_key(extension)}"
         )
-        weight_sum = np.concatenate(
-            (extension.weight_sum[extension_mask], base.weight_sum[base_mask])
-        )
-        n_replicates = np.concatenate(
-            (extension.n_replicates[extension_mask], base.n_replicates[base_mask])
-        )
-        stitched[condition] = AggregateResult(
-            epsilon=condition[0],
-            weakening_exponent=condition[1],
-            time=time,
-            values=np.empty((0, time.size), dtype=np.float64),
-            mean=mean,
-            stderr=stderr,
-            weight_sum=weight_sum,
-            n_replicates=n_replicates,
+    if extension.time.size == 0 or (
+        float(extension.time[-1]) + float(extension.sample_dt)
+        < float(blend_end_time)
+    ):
+        available_time = float(extension.time[-1]) if extension.time.size else 0.0
+        raise RuntimeError(
+            f"Extension result {replicate_key(extension)} reaches only "
+            f"{available_time:g} tau_LJ, before blend end "
+            f"{blend_end_time:g} tau_LJ. Increase "
+            "--stress-max-runtime-fraction."
         )
 
-    return stitched
+    extension_mask = extension.time < float(blend_end_time)
+    if not np.any(extension_mask):
+        return base
+
+    short_time = np.asarray(extension.time[extension_mask], dtype=np.float64).copy()
+    short_modulus = np.asarray(
+        extension.modulus[extension_mask],
+        dtype=np.float64,
+    ).copy()
+    short_counts = np.asarray(
+        extension.counts[extension_mask],
+        dtype=np.float64,
+    ).copy()
+
+    base_valid = (
+        np.isfinite(base.time)
+        & np.isfinite(base.modulus)
+        & np.isfinite(base.counts)
+        & (base.counts > 0.0)
+    )
+    if np.count_nonzero(base_valid) < 2:
+        raise RuntimeError(
+            f"Replicate {replicate_key(base)} has fewer than two valid base lags."
+        )
+    base_time = np.asarray(base.time[base_valid], dtype=np.float64)
+    base_modulus = np.asarray(base.modulus[base_valid], dtype=np.float64)
+    base_counts = np.asarray(base.counts[base_valid], dtype=np.float64)
+
+    base_available = (
+        (short_time >= base_time[0])
+        & (short_time <= base_time[-1])
+    )
+    interpolated_base_modulus = np.full(short_time.shape, np.nan, dtype=np.float64)
+    interpolated_base_counts = np.zeros(short_time.shape, dtype=np.float64)
+    interpolated_base_modulus[base_available] = np.interp(
+        short_time[base_available],
+        base_time,
+        base_modulus,
+    )
+    interpolated_base_counts[base_available] = np.interp(
+        short_time[base_available],
+        base_time,
+        base_counts,
+    )
+
+    extension_valid = (
+        np.isfinite(short_modulus)
+        & np.isfinite(short_counts)
+        & (short_counts > 0.0)
+    )
+    taper = extension_taper_weight(
+        short_time,
+        blend_start_time,
+        blend_end_time,
+    )
+    extension_weights = np.where(
+        extension_valid,
+        taper * short_counts,
+        0.0,
+    )
+    base_weights = np.where(
+        base_available,
+        interpolated_base_counts,
+        0.0,
+    )
+    combined_weights = extension_weights + base_weights
+    weighted_extension = np.where(
+        extension_valid,
+        extension_weights * short_modulus,
+        0.0,
+    )
+    weighted_base = np.where(
+        base_available,
+        base_weights * interpolated_base_modulus,
+        0.0,
+    )
+    short_modulus = np.divide(
+        weighted_extension + weighted_base,
+        combined_weights,
+        out=np.full(combined_weights.shape, np.nan, dtype=np.float64),
+        where=combined_weights > 0.0,
+    )
+    short_counts = combined_weights
+
+    base_long_mask = base.time >= float(blend_end_time)
+    time = np.concatenate((short_time, base.time[base_long_mask]))
+    modulus = np.concatenate((short_modulus, base.modulus[base_long_mask]))
+    counts = np.concatenate((short_counts, base.counts[base_long_mask]))
+
+    return ReplicateResult(
+        epsilon=base.epsilon,
+        weakening_exponent=base.weakening_exponent,
+        replicate=base.replicate,
+        virial_path=f"{extension.virial_path};{base.virial_path}",
+        time=time,
+        modulus=modulus,
+        counts=counts,
+        sample_dt=min(base.sample_dt, extension.sample_dt),
+        n_samples=base.n_samples + extension.n_samples,
+        n_segments=base.n_segments + extension.n_segments,
+        longest_segment_samples=max(
+            base.longest_segment_samples,
+            extension.longest_segment_samples,
+        ),
+        regular_grid_samples=(
+            base.regular_grid_samples + extension.regular_grid_samples
+        ),
+        max_lag=time.size,
+    )
+
+
+def combine_base_extension_replicates(
+    base_results: List[ReplicateResult],
+    extension_results: List[ReplicateResult],
+    blend_start_time: float,
+    blend_end_time: float,
+) -> List[ReplicateResult]:
+    """Combine matching estimators before computing replicate-level SEM."""
+    extension_by_key: Dict[ReplicateKey, ReplicateResult] = {}
+    for extension in extension_results:
+        key = replicate_key(extension)
+        if key in extension_by_key:
+            raise RuntimeError(f"Duplicate extension result for {key}")
+        extension_by_key[key] = extension
+
+    combined: List[ReplicateResult] = []
+    seen_base_keys: Set[ReplicateKey] = set()
+    for base in base_results:
+        key = replicate_key(base)
+        if key in seen_base_keys:
+            raise RuntimeError(f"Duplicate base result for {key}")
+        seen_base_keys.add(key)
+        extension = extension_by_key.get(key)
+        if extension is None:
+            combined.append(base)
+        else:
+            combined.append(
+                combine_replicate_pair(
+                    base,
+                    extension,
+                    blend_start_time,
+                    blend_end_time,
+                )
+            )
+    return combined
 
 
 def write_timeseries(path: Path, time: np.ndarray, mean: np.ndarray, stderr: np.ndarray) -> None:
@@ -942,12 +1250,6 @@ def set_target_axes_position(ax) -> None:
     )
 
 
-def format_epsilon_legend_value(epsilon: float) -> str:
-    if math.isclose(epsilon, 0.0, rel_tol=0.0, abs_tol=1.0e-12):
-        return r"\mathrm{None}"
-    return f"{epsilon:g}"
-
-
 def format_condition_label(
     condition: ConditionKey,
     all_conditions: List[ConditionKey],
@@ -957,12 +1259,13 @@ def format_condition_label(
     weakening_values = {item[1] for item in all_conditions}
     if len(epsilon_values) == 1 and len(weakening_values) > 1:
         return f"p={weakening_exponent:g}"
+    if math.isclose(epsilon, 0.0, rel_tol=0.0, abs_tol=1.0e-12):
+        epsilon_label = "WCA"
+    else:
+        epsilon_label = rf"$\varepsilon_\mathrm{{RLJ}}={epsilon:g}\varepsilon_0$"
     if len(weakening_values) == 1:
-        return rf"$\varepsilon_\mathrm{{RLJ}}={format_epsilon_legend_value(epsilon)}$"
-    return (
-        rf"$\varepsilon_\mathrm{{RLJ}}={format_epsilon_legend_value(epsilon)}$, "
-        rf"p={weakening_exponent:g}"
-    )
+        return epsilon_label
+    return f"{epsilon_label}, p={weakening_exponent:g}"
 
 
 def condition_dir_name(condition: ConditionKey, include_p: bool) -> str:
@@ -1053,6 +1356,125 @@ def log_bin_timeseries_for_plot(
     if not output_time:
         return np.empty((0,), dtype=np.float64), np.empty((0,), dtype=np.float64)
     return np.concatenate(output_time), np.concatenate(output_values)
+
+
+def log_bin_replicates_on_common_grid(
+    results: List[ReplicateResult],
+    linear_lags: int,
+    bins_per_decade: float,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Log-bin replicate curves using shared bin edges."""
+    time, values, weights = align_replicate_results(results)
+    if time.size == 0:
+        return np.empty((0,), dtype=np.float64), np.empty((0, 0), dtype=np.float64)
+
+    valid = np.isfinite(values) & np.isfinite(weights) & (weights > 0.0)
+    populated_idx = np.flatnonzero(np.any(valid, axis=0) & (time > 0.0))
+    if populated_idx.size == 0:
+        return np.empty((0,), dtype=np.float64), np.empty((0, 0), dtype=np.float64)
+
+    linear_count = min(max(0, int(linear_lags)), populated_idx.size)
+    exact_idx = populated_idx[:linear_count]
+    rest_idx = populated_idx[linear_count:]
+    output_time: List[np.ndarray] = []
+    output_values: List[np.ndarray] = []
+
+    if exact_idx.size:
+        output_time.append(time[exact_idx])
+        output_values.append(values[:, exact_idx])
+
+    if rest_idx.size:
+        if bins_per_decade <= 0.0:
+            output_time.append(time[rest_idx])
+            output_values.append(values[:, rest_idx])
+        else:
+            t_min = float(time[rest_idx[0]])
+            t_max = float(np.max(time[rest_idx]))
+            if t_max <= t_min:
+                output_time.append(time[rest_idx])
+                output_values.append(values[:, rest_idx])
+            else:
+                n_bins = max(
+                    1,
+                    int(
+                        np.ceil(
+                            (np.log10(t_max) - np.log10(t_min))
+                            * bins_per_decade
+                        )
+                    ),
+                )
+                edges = np.logspace(
+                    np.log10(t_min),
+                    np.log10(t_max),
+                    n_bins + 1,
+                )
+                edges[0] = t_min
+                edges[-1] = np.nextafter(t_max, np.inf)
+                bin_indices = (
+                    np.searchsorted(edges, time[rest_idx], side="right") - 1
+                )
+                bin_indices = np.clip(bin_indices, 0, n_bins - 1)
+
+                binned_time: List[float] = []
+                binned_values: List[np.ndarray] = []
+                for bin_index in np.unique(bin_indices):
+                    idx = rest_idx[bin_indices == bin_index]
+                    bin_valid = valid[:, idx]
+                    bin_weights = np.where(bin_valid, weights[:, idx], 0.0)
+                    weight_sum = np.sum(bin_weights, axis=1)
+                    weighted_values = np.sum(
+                        np.where(bin_valid, bin_weights * values[:, idx], 0.0),
+                        axis=1,
+                    )
+                    replicate_values = np.divide(
+                        weighted_values,
+                        weight_sum,
+                        out=np.full(weight_sum.shape, np.nan, dtype=np.float64),
+                        where=weight_sum > 0.0,
+                    )
+                    total_weights = np.sum(bin_weights, axis=0)
+                    total_weight = float(np.sum(total_weights))
+                    if total_weight <= 0.0:
+                        continue
+                    binned_time.append(
+                        float(
+                            np.exp(
+                                np.sum(total_weights * np.log(time[idx]))
+                                / total_weight
+                            )
+                        )
+                    )
+                    binned_values.append(replicate_values)
+
+                if binned_time:
+                    output_time.append(np.asarray(binned_time, dtype=np.float64))
+                    output_values.append(
+                        np.column_stack(binned_values).astype(
+                            np.float64,
+                            copy=False,
+                        )
+                    )
+
+    if not output_time:
+        return np.empty((0,), dtype=np.float64), np.empty((0, 0), dtype=np.float64)
+    return np.concatenate(output_time), np.concatenate(output_values, axis=1)
+
+
+def select_log_spaced_indices(
+    time: np.ndarray,
+    valid: np.ndarray,
+    max_points: int,
+) -> np.ndarray:
+    valid_idx = np.flatnonzero(valid)
+    if valid_idx.size == 0 or max_points <= 0:
+        return np.empty((0,), dtype=np.int64)
+    if valid_idx.size <= max_points:
+        return valid_idx
+
+    positions = np.rint(
+        np.linspace(0, valid_idx.size - 1, int(max_points))
+    ).astype(np.int64)
+    return valid_idx[positions]
 
 
 def log_bin_mean_and_stderr_for_plot(
@@ -1163,20 +1585,20 @@ def truncate_at_plot_floor(
     values: np.ndarray,
     min_plot_g: float,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """Return the prefix before the first point where G drops below the plot floor."""
+    """Return the prefix before the first mean value below the plot floor."""
     n = min(time.size, values.size)
     if n == 0:
         return np.empty((0,), dtype=np.float64), np.empty((0,), dtype=np.float64)
 
     time_arr = np.asarray(time[:n], dtype=np.float64)
     value_arr = np.asarray(values[:n], dtype=np.float64)
-    keep = (
+    valid = (
         np.isfinite(time_arr)
         & np.isfinite(value_arr)
         & (time_arr > 0.0)
         & (value_arr >= float(min_plot_g))
     )
-    invalid_idx = np.flatnonzero(~keep)
+    invalid_idx = np.flatnonzero(~valid)
     end = int(invalid_idx[0]) if invalid_idx.size > 0 else n
     return time_arr[:end], value_arr[:end]
 
@@ -1270,8 +1692,140 @@ def write_stress_modulus_by_epsilon_plot(
 
     ax.set_xscale("log")
     ax.set_yscale("log")
-    ax.set_xlabel(r"$\tau / \tau_R^{(0)}$", fontsize=DEFAULT_LABEL_FONTSIZE)
-    ax.set_ylabel(r"$G$", fontsize=DEFAULT_LABEL_FONTSIZE)
+    ax.set_xlabel(STRESS_X_AXIS_LABEL, fontsize=DEFAULT_LABEL_FONTSIZE)
+    ax.set_ylabel(STRESS_Y_AXIS_LABEL, fontsize=DEFAULT_LABEL_FONTSIZE)
+    if x_limits is not None:
+        ax.set_xlim(left=x_limits[0], right=x_limits[1])
+    ax.format(
+        xspineloc="both",
+        yspineloc="both",
+        ytickloc="both",
+        tickdir="in",
+        grid=False,
+    )
+    ax.tick_params(
+        axis="both",
+        which="both",
+        top=True,
+        right=True,
+        labelsize=DEFAULT_TICK_FONTSIZE,
+    )
+    ax.legend(frameon=False, ncol=2, fontsize=DEFAULT_TICK_FONTSIZE)
+    set_target_axes_position(ax)
+    fig.savefig(path)
+    uplt.close(fig)
+
+
+def write_replicate_overlay_with_sem_plot(
+    path: Path,
+    results: List[ReplicateResult],
+    condition_values: List[ConditionKey],
+    tau_r0: float,
+    min_plot_g: float,
+    use_log_binning: bool,
+    plot_linear_lags: int,
+    plot_bins_per_decade: float,
+    sem_points: int,
+    colormap: str,
+    x_limits: Tuple[float, float] | None = None,
+) -> None:
+    """Plot sparse binned replicate means with replicate SEM error bars."""
+    if not np.isfinite(tau_r0) or tau_r0 <= 0.0:
+        tau_r0 = FALLBACK_TAU_R0
+
+    by_condition: Dict[ConditionKey, List[ReplicateResult]] = defaultdict(list)
+    for result in results:
+        by_condition[(result.epsilon, result.weakening_exponent)].append(result)
+    if not by_condition:
+        return
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    cmap = matplotlib.colormaps.get_cmap(colormap)
+    color_positions = np.linspace(0.0, 1.0, max(1, len(condition_values)))
+    color_by_condition = {
+        condition: cmap(color_positions[idx])
+        for idx, condition in enumerate(condition_values)
+    }
+
+    fig, ax = uplt.subplots(figsize=DEFAULT_FIGSIZE, dpi=DEFAULT_DPI, tight=False)
+    set_target_axes_position(ax)
+    plotted_conditions: List[ConditionKey] = []
+
+    for condition in condition_values:
+        condition_results = sorted(
+            by_condition.get(condition, []),
+            key=lambda result: result.replicate,
+        )
+        if not condition_results:
+            continue
+
+        if use_log_binning:
+            lag_time, replicate_values = log_bin_replicates_on_common_grid(
+                condition_results,
+                linear_lags=plot_linear_lags,
+                bins_per_decade=plot_bins_per_decade,
+            )
+        else:
+            lag_time, replicate_values, _ = align_replicate_results(
+                condition_results
+            )
+        if lag_time.size == 0 or replicate_values.size == 0:
+            continue
+
+        replicate_mean = finite_column_mean(replicate_values)
+        replicate_stderr = finite_column_stderr(replicate_values)
+        plotted_time, plotted_mean = truncate_at_plot_floor(
+            lag_time,
+            replicate_mean,
+            min_plot_g=float(min_plot_g),
+        )
+        if plotted_time.size == 0:
+            continue
+
+        n_plot = plotted_time.size
+        replicate_stderr = replicate_stderr[:n_plot]
+        color = color_by_condition.get(condition, "#2b2b2b")
+        x = plotted_time / tau_r0
+
+        sem_valid = (
+            np.isfinite(plotted_mean)
+            & np.isfinite(replicate_stderr)
+            & (plotted_mean >= float(min_plot_g))
+            & ((plotted_mean - replicate_stderr) >= float(min_plot_g))
+        )
+        sem_idx = select_log_spaced_indices(
+            plotted_time,
+            sem_valid,
+            max_points=int(sem_points),
+        )
+        if sem_idx.size:
+            ax.errorbar(
+                x[sem_idx],
+                plotted_mean[sem_idx],
+                yerr=replicate_stderr[sem_idx],
+                fmt="o",
+                color=color,
+                markerfacecolor="white",
+                markeredgecolor=color,
+                markeredgewidth=0.8,
+                markersize=3.0,
+                elinewidth=0.9,
+                capsize=2.0,
+                capthick=0.9,
+                alpha=0.95,
+                label=format_condition_label(condition, condition_values),
+                zorder=4,
+            )
+            plotted_conditions.append(condition)
+
+    if not plotted_conditions:
+        uplt.close(fig)
+        return
+
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.set_xlabel(STRESS_X_AXIS_LABEL, fontsize=DEFAULT_LABEL_FONTSIZE)
+    ax.set_ylabel(STRESS_Y_AXIS_LABEL, fontsize=DEFAULT_LABEL_FONTSIZE)
     if x_limits is not None:
         ax.set_xlim(left=x_limits[0], right=x_limits[1])
     ax.format(
@@ -1389,8 +1943,8 @@ def write_all_replicate_stress_modulus_plot(
 
     ax.set_xscale("log")
     ax.set_yscale("log")
-    ax.set_xlabel(r"$\tau / \tau_R^{(0)}$", fontsize=DEFAULT_LABEL_FONTSIZE)
-    ax.set_ylabel(r"$G$", fontsize=DEFAULT_LABEL_FONTSIZE)
+    ax.set_xlabel(STRESS_X_AXIS_LABEL, fontsize=DEFAULT_LABEL_FONTSIZE)
+    ax.set_ylabel(STRESS_Y_AXIS_LABEL, fontsize=DEFAULT_LABEL_FONTSIZE)
     if x_limits is not None:
         ax.set_xlim(left=x_limits[0], right=x_limits[1])
     ax.format(
@@ -1438,6 +1992,7 @@ def write_summary(
                 "n_samples": int(result.n_samples),
                 "n_segments": int(result.n_segments),
                 "longest_segment_samples": int(result.longest_segment_samples),
+                "regular_grid_samples": int(result.regular_grid_samples),
                 "max_lag": int(result.max_lag),
                 "max_time": float(result.time[-1]) if result.time.size else None,
             }
@@ -1486,8 +2041,32 @@ def main() -> None:
         raise RuntimeError("--plot-linear-lags must be >= 0.")
     if args.plot_bins_per_decade <= 0.0:
         raise RuntimeError("--plot-bins-per-decade must be > 0.")
+    if args.replicate_sem_points <= 0:
+        raise RuntimeError("--replicate-sem-points must be > 0.")
     if args.extension_stitch_time <= 0.0:
         raise RuntimeError("--extension-stitch-time must be > 0.")
+    blend_bounds_provided = (
+        args.extension_blend_start_time is not None,
+        args.extension_blend_end_time is not None,
+    )
+    if blend_bounds_provided[0] != blend_bounds_provided[1]:
+        raise RuntimeError(
+            "--extension-blend-start-time and --extension-blend-end-time "
+            "must be provided together."
+        )
+    if all(blend_bounds_provided):
+        blend_start_time = float(args.extension_blend_start_time)
+        blend_end_time = float(args.extension_blend_end_time)
+        if blend_start_time <= 0.0 or blend_end_time <= 0.0:
+            raise RuntimeError("Extension blend times must be > 0.")
+        if blend_start_time >= blend_end_time:
+            raise RuntimeError(
+                "--extension-blend-start-time must be less than "
+                "--extension-blend-end-time."
+            )
+    else:
+        blend_start_time = float(args.extension_stitch_time)
+        blend_end_time = float(args.extension_stitch_time)
 
     selected_conditions = parse_condition_filters(args.conditions)
     selected_weakening_exponents = args.weakening_exponents
@@ -1581,23 +2160,33 @@ def main() -> None:
             result for result in extension_computed if result is not None
         ]
 
-    log("Aggregating replicate curves by condition")
+    log("Aggregating base and extension diagnostics by condition")
     base_aggregated = aggregate_replicates(base_results)
     extension_aggregated = (
         aggregate_replicates(extension_results) if extension_results else {}
     )
-    if extension_aggregated:
-        log(
-            "Stitching dense extension curves through "
-            f"{float(args.extension_stitch_time) / float(args.tau_r0):.3g} tau_R^0"
-        )
-        aggregated = stitch_extension_aggregates(
-            base_aggregated,
-            extension_aggregated,
-            float(args.extension_stitch_time),
+    if extension_results:
+        if blend_start_time < blend_end_time:
+            log(
+                "Blending base and dense extension estimators from "
+                f"{blend_start_time / float(args.tau_r0):.3g} to "
+                f"{blend_end_time / float(args.tau_r0):.3g} tau_R^0"
+            )
+        else:
+            log(
+                "Combining base and dense extension estimators below "
+                f"{blend_end_time / float(args.tau_r0):.3g} tau_R^0"
+            )
+        combined_results = combine_base_extension_replicates(
+            base_results,
+            extension_results,
+            blend_start_time,
+            blend_end_time,
         )
     else:
-        aggregated = base_aggregated
+        combined_results = base_results
+    log("Aggregating combined replicate curves by condition")
+    aggregated = aggregate_replicates(combined_results)
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
     condition_values = sorted(aggregated)
@@ -1666,7 +2255,7 @@ def main() -> None:
         )
 
     plot_path = args.output_dir / args.plot_name
-    plot_results = extension_results + base_results if extension_results else base_results
+    plot_results = combined_results
     if args.plot_all_curves:
         write_all_replicate_stress_modulus_plot(
             plot_path,
@@ -1696,9 +2285,26 @@ def main() -> None:
             args.colormap,
             x_limits=x_limits,
         )
+    replicate_plot_path = plot_path.with_name(
+        f"{plot_path.stem}_replicates_with_sem{plot_path.suffix}"
+    )
+    write_replicate_overlay_with_sem_plot(
+        replicate_plot_path,
+        plot_results,
+        condition_values,
+        float(args.tau_r0),
+        float(args.min_plot_g),
+        not args.no_plot_log_binning,
+        int(args.plot_linear_lags),
+        float(args.plot_bins_per_decade),
+        int(args.replicate_sem_points),
+        args.colormap,
+        x_limits=x_limits,
+    )
     write_summary(args.output_dir / "summary.json", plot_results, aggregated)
     log(f"Wrote full-FFT stress relaxation outputs to {args.output_dir}")
     log(f"Wrote plot to {plot_path}")
+    log(f"Wrote replicate diagnostic plot to {replicate_plot_path}")
 
 
 if __name__ == "__main__":

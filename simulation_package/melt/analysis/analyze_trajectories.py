@@ -1097,9 +1097,9 @@ def analyze_replicate(
         inter_bond_total = 0
         bond_frames = 0
 
-        rate_assoc_sum = 0.0
-        rate_dissoc_sum = 0.0
-        rate_count = 0
+        assoc_events_total = 0
+        dissoc_events_total = 0
+        free_sticker_time = 0.0
 
         prev_bond_ids: np.ndarray | None = None
         prev_open_count: int | None = None
@@ -1203,17 +1203,18 @@ def analyze_replicate(
                 and prev_is_open is not None
             ):
                 new_bonds = np.setdiff1d(bond_ids, prev_bond_ids, assume_unique=True)
-                n_m = prev_open_count
-                if n_m > 0 and new_bonds.size > 0:
+                assoc = 0
+                dissoc = 0
+                if new_bonds.size > 0:
                     new_i = new_bonds // n_stickers
                     new_j = new_bonds % n_stickers
                     assoc = int(
                         np.count_nonzero((~prev_is_open[new_i]) | (~prev_is_open[new_j]))
                     )
                     dissoc = int(new_bonds.size - assoc)
-                    rate_assoc_sum += assoc / (n_m * frame_dt)
-                    rate_dissoc_sum += dissoc / (n_m * frame_dt)
-                    rate_count += 1
+                assoc_events_total += assoc
+                dissoc_events_total += dissoc
+                free_sticker_time += prev_open_count * frame_dt
 
             prev_bond_ids = bond_ids
             prev_open_count = open_count
@@ -1305,8 +1306,16 @@ def analyze_replicate(
             "mean_cluster_size": mean_cluster_size_sum / max(cluster_frames, 1),
             "largest_cluster_fraction": largest_cluster_fraction_sum
             / max(cluster_frames, 1),
-            "rate_assoc": rate_assoc_sum / max(rate_count, 1),
-            "rate_dissoc": rate_dissoc_sum / max(rate_count, 1),
+            "rate_assoc": (
+                float(assoc_events_total / free_sticker_time)
+                if free_sticker_time > 0.0
+                else float("nan")
+            ),
+            "rate_dissoc": (
+                float(dissoc_events_total / free_sticker_time)
+                if free_sticker_time > 0.0
+                else float("nan")
+            ),
             "tau_s": tau_s,
             "tau_b": tau_b,
             "tau_c": tau_c,
@@ -1730,7 +1739,7 @@ def write_cluster_distribution_by_epsilon_plot(
 
     def format_rlj_legend_label(epsilon: float) -> str:
         if np.isclose(float(epsilon), 0.0, rtol=0.0, atol=1.0e-12):
-            return r"$\varepsilon_\mathrm{RLJ}=\mathrm{None}$"
+            return "WCA"
         return rf"$\varepsilon_\mathrm{{RLJ}}={float(epsilon):g}$"
 
     def align_terminal_log_xtick_labels(fig, ax) -> None:
@@ -1777,7 +1786,8 @@ def write_cluster_distribution_by_epsilon_plot(
             s=8.0,
             color=color,
             label=format_rlj_legend_label(eps),
-            linewidths=0.0,
+            edgecolors="black",
+            linewidths=0.35,
         )
         max_x = max(max_x, float(np.max(cluster_size)))
         max_y = max(max_y, float(np.max(prob)))
@@ -1785,10 +1795,10 @@ def write_cluster_distribution_by_epsilon_plot(
 
     ax.set_xscale("log")
     ax.set_yscale("log")
-    ax.set_xlabel("M", fontsize=10)
-    ax.set_ylabel("P(M)", fontsize=10)
+    ax.set_xlabel(r"Cluster size, $M$", fontsize=10)
+    ax.set_ylabel(r"Probability, $P(M)$", fontsize=10)
     ax.yaxis.set_major_formatter(mticker.LogFormatterSciNotation(base=10.0))
-    ax.tick_params(axis="both", which="both", labelsize=8)
+    ax.tick_params(axis="both", which="both", labelsize=10)
     ax.set_xlim(left=1.0, right=max_x * 1.08)
     if np.isfinite(min_y) and min_y > 0.0:
         ax.set_ylim(bottom=min_y * 0.8, top=max_y * 1.2)
@@ -1800,7 +1810,7 @@ def write_cluster_distribution_by_epsilon_plot(
         tickdir="in",
         grid=False,
     )
-    ax.legend(frameon=False, fontsize=7, ncol=1)
+    ax.legend(frameon=False, fontsize=10, ncol=1)
     set_standard_axes_position(ax)
     fig.savefig(path)
     uplt.close(fig)

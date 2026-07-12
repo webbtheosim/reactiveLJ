@@ -1326,7 +1326,7 @@ def write_cluster_distribution_by_epsilon_plot(
 
     def format_epsilon_legend_label(epsilon: float) -> str:
         if np.isclose(float(epsilon), 0.0, rtol=0.0, atol=1.0e-12):
-            return r"$\varepsilon_\mathrm{RLJ}=\mathrm{None}$"
+            return "WCA"
         return rf"$\varepsilon_\mathrm{{RLJ}}={epsilon:g}$"
 
     series = []
@@ -1364,7 +1364,8 @@ def write_cluster_distribution_by_epsilon_plot(
             s=8.0,
             color=color,
             label=format_epsilon_legend_label(eps),
-            linewidths=0.0,
+            edgecolors="black",
+            linewidths=0.35,
         )
         max_x = max(max_x, float(np.max(cluster_size)))
         max_y = max(max_y, float(np.max(prob)))
@@ -1372,8 +1373,9 @@ def write_cluster_distribution_by_epsilon_plot(
 
     ax.set_xscale("log")
     ax.set_yscale("log")
-    ax.set_xlabel("M", fontsize=10)
-    ax.set_ylabel("P(M)", fontsize=10)
+    ax.set_xlabel(r"Cluster size, $M$", fontsize=10)
+    ax.set_ylabel(r"Probability, $P(M)$", fontsize=10)
+    ax.xaxis.set_major_formatter(mticker.LogFormatterSciNotation(base=10.0))
     ax.yaxis.set_major_formatter(mticker.LogFormatterSciNotation(base=10.0))
     ax.format(
         xspineloc="both",
@@ -1383,11 +1385,11 @@ def write_cluster_distribution_by_epsilon_plot(
         tickdir="in",
         grid=False,
     )
-    ax.tick_params(axis="both", which="both", labelsize=8)
+    ax.tick_params(axis="both", which="both", labelsize=10)
     ax.set_xlim(left=1.0, right=max_x * 1.08)
     if np.isfinite(min_y) and min_y > 0.0:
         ax.set_ylim(bottom=min_y * 0.8, top=max_y * 1.2)
-    ax.legend(frameon=False, fontsize=7, ncol=1)
+    ax.legend(frameon=False, fontsize=10, ncol=1)
     set_target_axes_position(ax)
     fig.savefig(path, format="svg")
     uplt.close(fig)

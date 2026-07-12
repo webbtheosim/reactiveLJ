@@ -30,6 +30,7 @@ Path(os.environ["XDG_CACHE_HOME"]).mkdir(parents=True, exist_ok=True)
 import freud
 import gsd.hoomd
 import matplotlib
+import matplotlib.ticker as mticker
 import numpy as np
 from joblib import Parallel, delayed
 
@@ -41,6 +42,7 @@ FALLBACK_TAU_R0 = 4041.0
 MAX_ANALYSIS_LAG_TAU_R0 = 1000.0
 MAX_ANALYSIS_LAG_TIME = FALLBACK_TAU_R0 * MAX_ANALYSIS_LAG_TAU_R0
 DEFAULT_WEAKENING_EXPONENT = 4.0
+DEFAULT_PLOT_X_MIN_TAU_R0 = 0.5 / FALLBACK_TAU_R0
 POINTS_PER_INCH = 72.0
 FIGURE_WIDTH_PT = 237.6
 FIGURE_HEIGHT_PT = 144.0
@@ -53,8 +55,9 @@ DEFAULT_FIGSIZE = (
     FIGURE_HEIGHT_PT / POINTS_PER_INCH,
 )
 DEFAULT_DPI = 1000
-DEFAULT_TICK_FONTSIZE = 8
+DEFAULT_TICK_FONTSIZE = 10
 DEFAULT_LABEL_FONTSIZE = 10
+MSD_X_AXIS_LABEL = r"Lag time, $\tau / \tau_R^{(0)}$"
 ConditionKey = Tuple[float, float]
 
 
@@ -183,8 +186,8 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=None,
         help=(
-            "Optional left x-axis limit in tau_LJ units. When omitted, use the "
-            "minimum positive lag available in the plotted MSD curves."
+            "Optional left x-axis limit in tau_LJ units. When omitted, keep the "
+            "same lower bound used by the stress-relaxation plots."
         ),
     )
     parser.add_argument(
@@ -715,7 +718,7 @@ def compute_shared_time_lag_xlim(
         if not np.isfinite(x_min) or x_min <= 0.0:
             return None
     elif positive_xmins:
-        x_min = min(positive_xmins)
+        x_min = DEFAULT_PLOT_X_MIN_TAU_R0
     else:
         return None
 
@@ -751,12 +754,13 @@ def format_condition_label(
     weakening_values = {item[1] for item in all_conditions}
     if len(epsilon_values) == 1 and len(weakening_values) > 1:
         return f"p={weakening_exponent:g}"
+    if math.isclose(epsilon, 0.0, rel_tol=0.0, abs_tol=1.0e-12):
+        epsilon_label = "WCA"
+    else:
+        epsilon_label = rf"$\varepsilon_\mathrm{{RLJ}}={epsilon:g}$"
     if len(weakening_values) == 1:
-        return rf"$\varepsilon_\mathrm{{RLJ}}={format_epsilon_legend_value(epsilon)}$"
-    return (
-        rf"$\varepsilon_\mathrm{{RLJ}}={format_epsilon_legend_value(epsilon)}$, "
-        rf"p={weakening_exponent:g}"
-    )
+        return epsilon_label
+    return f"{epsilon_label}, p={weakening_exponent:g}"
 
 
 def condition_dir_name(condition: ConditionKey, include_p: bool) -> str:
@@ -814,8 +818,10 @@ def write_msd_by_condition_plot(
 
     ax.set_xscale("log")
     ax.set_yscale("log")
-    ax.set_xlabel(r"$\tau / \tau_R^0$", fontsize=DEFAULT_LABEL_FONTSIZE)
+    ax.set_xlabel(MSD_X_AXIS_LABEL, fontsize=DEFAULT_LABEL_FONTSIZE)
     ax.set_ylabel("MSD", fontsize=DEFAULT_LABEL_FONTSIZE)
+    ax.xaxis.set_major_formatter(mticker.LogFormatterMathtext(base=10.0))
+    ax.yaxis.set_major_formatter(mticker.LogFormatterMathtext(base=10.0))
     if x_limits is not None:
         ax.set_xlim(left=x_limits[0], right=x_limits[1])
     ax.format(

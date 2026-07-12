@@ -2,15 +2,16 @@
 """Extend clean ReactiveLJ checkpoints with dense virial-tensor sampling.
 
 This script starts from full ``checkpoint.gsd`` states in ``outputs_clean`` and
-runs a short continuation using the same production force-field setup as
-``run_reactive_lj.py``. It writes only ``virial_tensor_log.gsd`` plus metadata
-under a mirrored output directory.
+runs a continuation using the same production force-field setup as
+``run_reactive_lj.py``. It writes ``virial_tensor_log.gsd``, metadata, and a
+terminal ``checkpoint.gsd`` under a mirrored output directory.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from dataclasses import asdict, fields
@@ -18,7 +19,21 @@ from datetime import datetime
 from pathlib import Path
 from typing import List
 
+import gsd.hoomd
 import hoomd
+
+# The copied reactiveLJ_paper environment contains the custom HOOMD build but
+# not its CuPy/Numba runtime dependencies. Append, rather than prepend, the
+# compatible support environment so the already-imported custom HOOMD remains
+# authoritative.
+SUPPORT_SITE_PACKAGES = Path(
+    os.environ.get(
+        "REACTIVELJ_SUPPORT_SITE_PACKAGES",
+        "/home/mc7345/anaconda3/envs/hoomd-latest/lib/python3.14/site-packages",
+    )
+)
+if SUPPORT_SITE_PACKAGES.is_dir() and str(SUPPORT_SITE_PACKAGES) not in sys.path:
+    sys.path.append(str(SUPPORT_SITE_PACKAGES))
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
@@ -33,6 +48,7 @@ from run_reactive_lj import (
     flush_output_writers,
     production_steps_for_tau_r0,
     validate_stickers,
+    write_checkpoint,
 )
 
 
@@ -110,6 +126,14 @@ def parse_args() -> argparse.Namespace:
         "--overwrite",
         action="store_true",
         help="Overwrite an existing extension virial log for the selected run.",
+    )
+    parser.add_argument(
+        "--restart-incomplete",
+        action="store_true",
+        help=(
+            "Replace an output chunk whose metadata is absent or not marked "
+            "complete. Completed chunks are still preserved."
+        ),
     )
     parser.add_argument(
         "--max-runs",
@@ -217,8 +241,19 @@ def relative_output_dir(input_root: Path, output_root: Path, run_dir: Path) -> P
 
 def write_extension_metadata(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as handle:
+    temporary_path = path.with_suffix(f"{path.suffix}.tmp")
+    with temporary_path.open("w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2)
+    os.replace(temporary_path, path)
+
+
+def read_terminal_timestep(path: Path) -> int:
+    if not path.is_file():
+        raise RuntimeError(f"Expected GSD output does not exist: {path}")
+    with gsd.hoomd.open(path, mode="r") as trajectory:
+        if len(trajectory) == 0:
+            raise RuntimeError(f"Expected at least one GSD frame in {path}")
+        return int(trajectory[-1].configuration.step)
 
 
 def run_extension(
@@ -228,6 +263,7 @@ def run_extension(
     extension_runtime_tau_r0: float,
     virial_log_steps: int,
     overwrite: bool,
+    restart_incomplete: bool,
 ) -> None:
     source_metadata_path = run_dir / "metadata.json"
     checkpoint_path = run_dir / "checkpoint.gsd"
@@ -246,6 +282,7 @@ def run_extension(
     output_dir = relative_output_dir(input_root, output_root, run_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     virial_path = output_dir / "virial_tensor_log.gsd"
+    output_checkpoint_path = output_dir / "checkpoint.gsd"
     output_metadata_path = output_dir / "metadata.json"
 
     if virial_path.exists():
@@ -253,12 +290,39 @@ def run_extension(
             load_metadata(output_metadata_path) if output_metadata_path.exists() else {}
         )
         if existing_metadata.get("run_status") == "complete" and not overwrite:
+            if not output_checkpoint_path.is_file():
+                raise RuntimeError(
+                    f"Completed extension is missing checkpoint: {output_checkpoint_path}"
+                )
+            virial_final_timestep = read_terminal_timestep(virial_path)
+            checkpoint_final_timestep = read_terminal_timestep(output_checkpoint_path)
+            expected_final_timestep = existing_metadata.get(
+                "extension_final_timestep"
+            )
+            if virial_final_timestep != checkpoint_final_timestep:
+                raise RuntimeError(
+                    f"Completed output is not synchronized: virial timestep "
+                    f"{virial_final_timestep}, checkpoint timestep "
+                    f"{checkpoint_final_timestep}."
+                )
+            if (
+                expected_final_timestep is not None
+                and virial_final_timestep != int(expected_final_timestep)
+            ):
+                raise RuntimeError(
+                    f"Completed output timestep {virial_final_timestep} does "
+                    f"not match metadata timestep {expected_final_timestep}."
+                )
             log(f"Skipping completed extension output: {virial_path}")
             return
-        if not overwrite:
+        if not overwrite and not restart_incomplete:
             raise RuntimeError(
-                f"{virial_path} already exists. Use --overwrite to regenerate it."
+                f"{virial_path} already exists. Use --overwrite or "
+                "--restart-incomplete to regenerate it."
             )
+        log(f"Restarting incomplete extension output: {output_dir}")
+        virial_path.unlink(missing_ok=True)
+        output_checkpoint_path.unlink(missing_ok=True)
 
     device = hoomd.device.GPU()
     sim = hoomd.Simulation(device=device, seed=seed)
@@ -279,12 +343,19 @@ def run_extension(
     sim.operations.updaters.append(zero_momentum)
 
     sim.always_compute_pressure = False
+    start_timestep = int(sim.timestep)
+    target_timestep = start_timestep + int(extension_steps)
+    virial_trigger_phase = target_timestep % int(cfg.virial_log_steps)
+
     virial_tensor_logger = VirialTensorLogger(sim)
     virial_logger = hoomd.logging.Logger()
     virial_logger.add(virial_tensor_logger, quantities=["virial_tensor"])
     virial_writer = hoomd.write.GSD(
         filename=str(virial_path),
-        trigger=hoomd.trigger.Periodic(int(cfg.virial_log_steps)),
+        trigger=hoomd.trigger.Periodic(
+            int(cfg.virial_log_steps),
+            phase=virial_trigger_phase,
+        ),
         mode="wb",
         filter=hoomd.filter.Null(),
         dynamic=[],
@@ -292,8 +363,6 @@ def run_extension(
     )
     sim.operations.writers.append(virial_writer)
 
-    start_timestep = int(sim.timestep)
-    target_timestep = start_timestep + int(extension_steps)
     metadata_payload = asdict(cfg)
     metadata_payload.update(
         {
@@ -323,6 +392,8 @@ def run_extension(
             "initial_box_length": metadata.get("initial_box_length"),
             "trajectory_particle_subset": "none",
             "virial_log_file": "virial_tensor_log.gsd",
+            "virial_trigger_phase": virial_trigger_phase,
+            "checkpoint_file": "checkpoint.gsd",
             "position_frames_written": False,
         }
     )
@@ -338,17 +409,48 @@ def run_extension(
     start_wall = time.perf_counter()
     sim.run(int(extension_steps))
     flush_output_writers(sim)
+
+    final_timestep = int(sim.timestep)
+    virial_final_timestep = read_terminal_timestep(virial_path)
+    if final_timestep != target_timestep:
+        raise RuntimeError(
+            f"Simulation stopped at timestep {final_timestep}, expected "
+            f"{target_timestep}."
+        )
+    if virial_final_timestep != final_timestep:
+        raise RuntimeError(
+            f"Virial log ends at timestep {virial_final_timestep}, but the "
+            f"simulation ends at {final_timestep}."
+        )
+
+    temporary_checkpoint_path = output_checkpoint_path.with_name(
+        f"{output_checkpoint_path.stem}.tmp.gsd"
+    )
+    temporary_checkpoint_path.unlink(missing_ok=True)
+    write_checkpoint(str(temporary_checkpoint_path), sim)
+    checkpoint_final_timestep = read_terminal_timestep(temporary_checkpoint_path)
+    if checkpoint_final_timestep != virial_final_timestep:
+        temporary_checkpoint_path.unlink(missing_ok=True)
+        raise RuntimeError(
+            f"Checkpoint ends at timestep {checkpoint_final_timestep}, but the "
+            f"virial log ends at {virial_final_timestep}."
+        )
+    os.replace(temporary_checkpoint_path, output_checkpoint_path)
     walltime = time.perf_counter() - start_wall
 
     metadata_payload.update(
         {
             "run_status": "complete",
-            "extension_final_timestep": int(sim.timestep),
+            "extension_final_timestep": final_timestep,
+            "virial_final_timestep": virial_final_timestep,
+            "checkpoint_final_timestep": checkpoint_final_timestep,
+            "outputs_timestep_synchronized": True,
             "extension_walltime_seconds": walltime,
         }
     )
     write_extension_metadata(output_metadata_path, metadata_payload)
     log(f"Wrote dense virial log to {virial_path}")
+    log(f"Wrote extension checkpoint to {output_checkpoint_path}")
 
 
 def main() -> int:
@@ -371,6 +473,7 @@ def main() -> int:
             extension_runtime_tau_r0=float(args.extension_runtime_tau_r0),
             virial_log_steps=int(args.virial_log_steps),
             overwrite=bool(args.overwrite),
+            restart_incomplete=bool(args.restart_incomplete),
         )
     return 0
 

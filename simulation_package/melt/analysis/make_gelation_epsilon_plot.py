@@ -35,11 +35,13 @@ DEFAULT_FIGSIZE = (
     FIGURE_HEIGHT_PT / POINTS_PER_INCH,
 )
 DEFAULT_DPI = 1000
-DEFAULT_TICK_FONTSIZE = 8
+DEFAULT_TICK_FONTSIZE = 10
 DEFAULT_LABEL_FONTSIZE = 10
 DEFAULT_OUTPUT_NAME = "gelation_epsilon_vs_epsilon.svg"
 BAR_COLOR = "#e77500"
 EDGE_COLOR = "black"
+X_AXIS_LABEL = r"Sticker strength, $\varepsilon_\mathrm{RLJ}/\varepsilon_0$"
+Y_AXIS_LABEL = r"Degree of gelation, $\mathcal{E}$"
 
 
 def parse_args() -> argparse.Namespace:
@@ -63,7 +65,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def epsilon_category_labels(epsilon: np.ndarray) -> list[str]:
-    return ["None" if np.isclose(value, 0.0) else f"{value:g}" for value in epsilon]
+    return ["WCA" if np.isclose(value, 0.0) else f"{value:g}" for value in epsilon]
 
 
 def set_target_axes_position(ax) -> None:
@@ -181,8 +183,8 @@ def write_gelation_epsilon_plot(
         linewidth=0.5,
     )
     ax.set_ylim(bottom=0.0)
-    ax.set_xlabel(r"$\varepsilon_\mathrm{RLJ}/\varepsilon_0$", fontsize=DEFAULT_LABEL_FONTSIZE)
-    ax.set_ylabel(r"$\mathcal{E}$", fontsize=DEFAULT_LABEL_FONTSIZE)
+    ax.set_xlabel(X_AXIS_LABEL, fontsize=DEFAULT_LABEL_FONTSIZE)
+    ax.set_ylabel(Y_AXIS_LABEL, fontsize=DEFAULT_LABEL_FONTSIZE)
     ax.set_xticks(x)
     ax.set_xticklabels(epsilon_category_labels(epsilon))
     ax.set_xlim(-0.5, epsilon.size - 0.5)

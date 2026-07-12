@@ -39,9 +39,9 @@ from analysis_utils import (
 
 
 PLOT_DPI = 1000
-TICK_FONTSIZE = 8
+TICK_FONTSIZE = 10
 LABEL_FONTSIZE = 10
-LEGEND_FONTSIZE = 8
+LEGEND_FONTSIZE = 10
 EXCHANGE_RATE_PLOT_EXCLUDED_EPSILONS = (0.0, 6.0)
 SWAP_RATE_PLOT_EXCLUDED_EPSILONS = (0.0, 6.0)
 DEFAULT_TAU_R0 = 4041.0
@@ -54,6 +54,9 @@ SINGLE_CHAIN_BAR_AXES_LEFT_PT = 35.55
 SINGLE_CHAIN_BAR_AXES_BOTTOM_PT = 27.66
 SINGLE_CHAIN_BAR_AXES_WIDTH_PT = 197.55
 SINGLE_CHAIN_BAR_AXES_HEIGHT_PT = 109.609905
+SINGLE_CHAIN_STICKER_STRENGTH_LABEL = r"Sticker strength, $\varepsilon_\mathrm{RLJ}/\varepsilon_0$"
+SINGLE_CHAIN_TURNOVER_RATE_LABEL = r"Turnover rate, $\nu_\mathrm{app}$"
+SINGLE_CHAIN_PERSISTENCE_TIME_LABEL = r"Persistence time $\tau_\alpha/\tau_R^{(0)}$"
 
 
 def log(message: str) -> None:
@@ -730,11 +733,8 @@ def write_exchange_rate_comparison_plot(
     ax.set_yscale("log")
     ax.set_ylim(y_floor, y_ceiling)
     ax.yaxis.set_major_formatter(mticker.LogFormatterSciNotation(base=10.0))
-    ax.set_xlabel(
-        r"$\varepsilon_\mathrm{RLJ}/\varepsilon_0$",
-        fontsize=LABEL_FONTSIZE,
-    )
-    ax.set_ylabel(r"$R_\mathrm{a}, R_\mathrm{d}$ ($\tau^{-1}$)", fontsize=LABEL_FONTSIZE)
+    ax.set_xlabel(SINGLE_CHAIN_STICKER_STRENGTH_LABEL, fontsize=LABEL_FONTSIZE)
+    ax.set_ylabel(SINGLE_CHAIN_TURNOVER_RATE_LABEL, fontsize=LABEL_FONTSIZE)
     ax.format(
         xspineloc="both",
         yspineloc="both",
@@ -993,11 +993,8 @@ def write_tau_bar_vs_epsilon_plot(
     )
     ax.set_yscale("log")
     ax.set_ylim(y_floor, float(np.max(positive_values) * 1.3))
-    ax.set_xlabel(
-        r"$\varepsilon_\mathrm{RLJ}/\varepsilon_0$",
-        fontsize=LABEL_FONTSIZE,
-    )
-    ax.set_ylabel(r"$\tau/\tau_R^{(0)}$", fontsize=LABEL_FONTSIZE)
+    ax.set_xlabel(SINGLE_CHAIN_STICKER_STRENGTH_LABEL, fontsize=LABEL_FONTSIZE)
+    ax.set_ylabel(SINGLE_CHAIN_PERSISTENCE_TIME_LABEL, fontsize=LABEL_FONTSIZE)
     ax.format(
         xspineloc="both",
         yspineloc="both",
@@ -1110,11 +1107,8 @@ def analyze_replicate(
         frac_bond_gt1_series: List[float] = []
         loop_length_series: List[int] = []
 
-        assoc_rate_sum = 0.0
-        dissoc_rate_sum = 0.0
-        rate_count = 0
-
         assoc_events_total = 0
+        dissoc_events_total = 0
         total_transition_time = 0.0
         free_sticker_time = 0.0
 
@@ -1216,14 +1210,11 @@ def analyze_replicate(
                     dissoc = 0
 
                 assoc_events_total += assoc
+                dissoc_events_total += dissoc
                 total_transition_time += frame_dt
 
                 n_m = prev_open_count
                 free_sticker_time += n_m * frame_dt
-                if n_m > 0:
-                    assoc_rate_sum += assoc / (n_m * frame_dt)
-                    dissoc_rate_sum += dissoc / (n_m * frame_dt)
-                    rate_count += 1
 
             prev_bonds = paired_bonds
             prev_open_count = open_count
@@ -1263,8 +1254,16 @@ def analyze_replicate(
 
         result = {
             "bonded_pairs_mean": float(np.mean(bond_count_arr)) if bond_count_arr.size else float("nan"),
-            "rate_assoc": assoc_rate_sum / max(rate_count, 1),
-            "rate_dissoc": dissoc_rate_sum / max(rate_count, 1),
+            "rate_assoc": (
+                float(assoc_events_total / free_sticker_time)
+                if free_sticker_time > 0.0
+                else float("nan")
+            ),
+            "rate_dissoc": (
+                float(dissoc_events_total / free_sticker_time)
+                if free_sticker_time > 0.0
+                else float("nan")
+            ),
             "swap_rate": swap_rate,
             "swap_rate_per_free_sticker": swap_rate_per_free,
             "tau_s": tau_s,

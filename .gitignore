@@ -17,3 +17,7 @@ simulation_package/melt/third_party/
 *.pyc
 *.nbc
 *.nbi
+
+# Root-level crash dumps and generated documents
+/core.*
+/*.pdf

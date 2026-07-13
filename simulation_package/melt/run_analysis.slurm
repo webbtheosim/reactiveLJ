@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=reactiveLJ_analysis
 #SBATCH --time=06:00:00
-#SBATCH --cpus-per-task=49
+#SBATCH --cpus-per-task=4
 #SBATCH --mem=256G
 #SBATCH --nodes=1
 #SBATCH --output=logs/run_analysis_%j.out
@@ -22,7 +22,7 @@ source ~/.bashrc
 log "Step 3/8: Loading anaconda module"
 module load anaconda3/2025.12
 log "Step 4/8: Activating conda environment"
-conda activate '/home/mc7345/micromamba/envs/reactiveLJ_paper'
+conda activate '/home/mc7345/anaconda3/envs/reactiveLJ_paper'
 
 set -euo pipefail
 

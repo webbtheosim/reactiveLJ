@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \":*)",
+      "Bash(python3:*)",
+      "WebFetch(domain:github.com)",
+      "Bash(pdftotext /scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/liu-o-connor-2024-a-reactive-bead-spring-model-for-associative-polymer-melts-in-and-out-of-equilibrium.pdf -)"
+    ]
+  }
+}

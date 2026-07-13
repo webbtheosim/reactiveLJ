@@ -2,7 +2,7 @@ Composition setup: target_polymer_wt=0.020000 actual_polymer_wt=0.019982 n_chain
 MPCD grid adjustment: raw_box_length=57.310432 snapped_box_length=57.000000 cell_size=1.000000 cells_per_dim=57
 *Warning*: Provided seed 180005 is larger than 65535. Truncating to 48933.
 HOOMD build: source_dir=/scratch/gpfs/WEBB/chertok/REACTIVELJ_PAPER/hoomd-blue git_sha1=485771cd90b48b896f1fbb7cec35a8b14c9116ee compile_date=2026-02-10 gpu_enabled=True gpu_platform=CUDA
-many_body_py=/home/mc7345/micromamba/envs/reactiveLJ_paper/lib/python3.14/site-packages/hoomd/md/many_body.py
+many_body_py=/home/mc7345/anaconda3/envs/reactiveLJ_paper/lib/python3.14/site-packages/hoomd/md/many_body.py
 ReactiveLJForceComputeGPU_present=True
 Device=<hoomd.device.GPU object at 0x150a594623c0>
 Initialization: placed 24/472 chains (fraction_accepted=1.0000)

@@ -18,7 +18,7 @@
 module purge
 source ~/.bashrc
 module load anaconda3/2025.12
-conda activate '/home/mc7345/micromamba/envs/reactiveLJ_paper'
+conda activate '/home/mc7345/anaconda3/envs/reactiveLJ_paper'
 
 set -euo pipefail
 

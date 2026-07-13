@@ -2882,99 +2882,12 @@ z
    </g>
   </g>
   <g id="text_20">
-   <!-- $r_\mathrm{AB}/\sigma$ -->
-   <g transform="translate(96.51 137.326875) scale(0.1 -0.1)">
-    <defs>
-     <path id="TeXGyreHeros-Regular-42" d="M 3987 1331 
-Q 3987 749 3609 374 
-Q 3232 0 2611 0 
-L 506 0 
-L 506 4666 
-L 2400 4666 
-Q 3046 4666 3414 4336 
-Q 3782 4006 3782 3482 
-Q 3782 2765 3136 2464 
-Q 3584 2291 3785 2022 
-Q 3987 1754 3987 1331 
-z
-M 2253 2656 
-Q 3187 2656 3187 3398 
-Q 3187 4141 2253 4141 
-L 1101 4141 
-L 1101 2656 
-L 2253 2656 
-z
-M 3392 1325 
-Q 3392 1683 3177 1907 
-Q 2963 2131 2554 2131 
-L 1101 2131 
-L 1101 525 
-L 2554 525 
-Q 2957 525 3174 749 
-Q 3392 973 3392 1325 
-z
-" transform="scale(0.015625)"/>
-    </defs>
-    <use xlink:href="#TeXGyreHeros-Italic-72" transform="translate(0 0.09375)"/>
-    <use xlink:href="#TeXGyreHeros-Regular-41" transform="translate(33.299988 -15.628125) scale(0.7)"/>
-    <use xlink:href="#TeXGyreHeros-Regular-42" transform="translate(79.989986 -15.628125) scale(0.7)"/>
-    <use xlink:href="#TeXGyreHeros-Regular-2f" transform="translate(129.300296 0.09375)"/>
-    <use xlink:href="#TeXGyreHeros-Italic-3c3" transform="translate(157.100284 0.09375)"/>
-   </g>
+   <!-- Pair distance, r_AB/sigma -->
+   <text x="107.66" y="137.326875" text-anchor="middle" style="font-size: 10px; font-family: 'TeX Gyre Heros', 'Helvetica', sans-serif">Pair distance, <tspan font-style="italic">r</tspan><tspan baseline-shift="sub" font-size="70%">AB</tspan>/&#963;</text>
   </g>
   <g id="text_21">
-   <!-- $U(r_\mathrm{AB})$ -->
-   <g transform="translate(11.8925 80.366) rotate(-90) scale(0.1 -0.1)">
-    <defs>
-     <path id="TeXGyreHeros-Italic-55" d="M 4800 4666 
-L 4109 1421 
-Q 3962 723 3389 304 
-Q 2816 -115 2010 -115 
-Q 1325 -115 902 205 
-Q 480 525 480 1024 
-Q 480 1216 570 1638 
-L 1216 4666 
-L 1818 4666 
-L 1126 1421 
-Q 1094 1293 1094 1139 
-Q 1094 806 1379 604 
-Q 1664 403 2125 403 
-Q 2669 403 3037 675 
-Q 3405 947 3507 1421 
-L 4198 4666 
-L 4800 4666 
-z
-" transform="scale(0.015625)"/>
-     <path id="TeXGyreHeros-Regular-28" d="M 1862 -1357 
-L 1510 -1357 
-Q 1030 -730 748 86 
-Q 467 902 467 1657 
-Q 467 2413 748 3225 
-Q 1030 4038 1510 4666 
-L 1862 4666 
-Q 986 3251 986 1658 
-Q 986 70 1862 -1357 
-z
-" transform="scale(0.015625)"/>
-     <path id="TeXGyreHeros-Regular-29" d="M 1356 3222 
-Q 1638 2406 1638 1651 
-Q 1638 896 1356 83 
-Q 1075 -730 595 -1357 
-L 243 -1357 
-Q 1120 58 1120 1651 
-Q 1120 3238 243 4666 
-L 595 4666 
-Q 1075 4038 1356 3222 
-z
-" transform="scale(0.015625)"/>
-    </defs>
-    <use xlink:href="#TeXGyreHeros-Italic-55" transform="translate(0 0.09375)"/>
-    <use xlink:href="#TeXGyreHeros-Regular-28" transform="translate(72.199982 0.09375)"/>
-    <use xlink:href="#TeXGyreHeros-Italic-72" transform="translate(105.499969 0.09375)"/>
-    <use xlink:href="#TeXGyreHeros-Regular-41" transform="translate(138.799957 -15.628125) scale(0.7)"/>
-    <use xlink:href="#TeXGyreHeros-Regular-42" transform="translate(185.489955 -15.628125) scale(0.7)"/>
-    <use xlink:href="#TeXGyreHeros-Regular-29" transform="translate(234.800266 0.09375)"/>
-   </g>
+   <!-- Potential energy, U(r_AB) -->
+   <text x="11.8925" y="66.916" text-anchor="middle" transform="rotate(-90 11.8925 66.916)" style="font-size: 10px; font-family: 'TeX Gyre Heros', 'Helvetica', sans-serif">Potential energy, <tspan font-style="italic">U</tspan>(<tspan font-style="italic">r</tspan><tspan baseline-shift="sub" font-size="70%">AB</tspan>)</text>
   </g>
  </g>
  <defs>

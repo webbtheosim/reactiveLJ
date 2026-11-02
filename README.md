@@ -1,15 +1,11 @@
 # ReactiveLJ simulations
 
-This repository contains a custom HOOMD-blue implementation of the
-coordination-dependent ReactiveLJ potential and the simulation/analysis
-workflows used for three associative-polymer systems:
+This repository contains the HOOMD-blue implementation of ReactiveLJ and the
+simulation and analysis scripts used in our paper. We examine associative
+polymers in single-chain, melt, and semidilute systems using the Kremer-Grest
+model, with an MPCD solvent for the semidilute systems.
 
-- a dense Kremer-Grest polymer melt;
-- a Kremer-Grest polymer solution with MPCD solvent; and
-- one dilute Kremer-Grest chain.
-
-All quantities are expressed in reduced Lennard-Jones units unless noted
-otherwise.
+All quantities are in reduced Lennard-Jones units unless otherwise stated.
 
 ## Repository layout
 
@@ -20,20 +16,19 @@ otherwise.
 | [simulation_package/mpcd](simulation_package/mpcd) | MPCD-solution generation, cleanup, analysis, and plotting |
 | [simulation_package/single_chain](simulation_package/single_chain) | Single-chain generation and analysis |
 
-Generated trajectories and analysis results are intentionally excluded from
-Git.
+The repository includes cached results for the revision studies. Full
+simulation trajectories are stored separately.
 
 ## Revision studies
 
-The [revision studies guide](simulation_package/REVISION_STUDIES.md) provides
-the ReactiveAH CPU/CUDA add-on, smoothing sweep, three-body barrier calculations,
-and cached data for reproducing the revision figures. It also documents the
-exact HOOMD version used for these campaigns.
+The [revision studies guide](simulation_package/REVISION_STUDIES.md) covers the
+ReactiveAH comparison, smoothing-parameter sweep, and three-body calculations.
+It includes instructions for running these studies and regenerating the
+figures from cached data.
 
 ## Clone the repository
 
-Clone with submodules so that the custom HOOMD-blue source and its nested
-dependencies are present:
+Clone the repository with its HOOMD-blue source and dependencies:
 
 ~~~bash
 git clone --recurse-submodules https://github.com/webbtheosim/reactiveLJ.git
@@ -41,9 +36,9 @@ cd reactiveLJ
 git submodule update --init --recursive
 ~~~
 
-The parent repository records one exact commit of
-https://github.com/matthewchertok/conservative-reactiveLJ. To update the
-checkout to the recorded commit after pulling the parent repository, run:
+The HOOMD submodule points to a specific version of
+[conservative-reactiveLJ](https://github.com/matthewchertok/conservative-reactiveLJ).
+After pulling updates, synchronize it with:
 
 ~~~bash
 git submodule update --init --recursive
@@ -51,26 +46,21 @@ git submodule update --init --recursive
 
 ## Software environment
 
-The generator scripts require the custom HOOMD build in this repository.
-Installing an upstream HOOMD release will not provide
-hoomd.md.many_body.ReactiveLJ.
-
-The workflows also import the following Python packages:
+The simulations use our custom HOOMD build, which provides
+`hoomd.md.many_body.ReactiveLJ`. The dependencies are:
 
 - generation: HOOMD-blue, NumPy, Numba, GSD, and CuPy;
 - analysis: NumPy, SciPy, GSD, freud, joblib, Matplotlib, and UltraPlot; and
 - build tools: CMake, Ninja, a C++17 compiler, Eigen, pybind11, and Python
   development headers.
 
-CuPy is imported by the current generator modules, including the single-chain
-module, so install a CuPy build compatible with the cluster CUDA runtime even
-when the single-chain SLURM job uses the CPU device.
+All three generators import CuPy, including the single-chain CPU workflow.
+Install a CuPy version compatible with your CUDA runtime.
 
 ### Build the custom HOOMD-blue
 
-Activate the environment that will run the simulations, load the compiler and
-CUDA modules required by the local cluster, and build against that same Python
-executable:
+Activate your simulation environment and load the compiler and CUDA modules
+for your cluster. Then build and install HOOMD in that environment:
 
 ~~~bash
 cd hoomd-blue
@@ -89,34 +79,26 @@ cmake --install build
 cd ..
 ~~~
 
-For a CPU-only build, use -DENABLE_GPU=OFF. The melt and MPCD production
-scripts request GPUs and their custom virial logger requires a GPU, so a
-CPU-only build is primarily useful for the single-chain workflow and testing.
-See [hoomd-blue/BUILDING.rst](hoomd-blue/BUILDING.rst) for compiler, CUDA/HIP,
-MPI, and architecture-specific CMake options.
+For single-chain CPU runs, use `-DENABLE_GPU=OFF`. The melt and MPCD workflows
+require a GPU for their virial logging. Additional build options are described
+in [hoomd-blue/BUILDING.rst](hoomd-blue/BUILDING.rst).
 
-Confirm that Python imports the intended build:
+Check the installed version and ReactiveLJ class with:
 
 ~~~bash
 python -c "import hoomd; print(hoomd.__file__); print(hoomd.version.version); print(hoomd.md.many_body.ReactiveLJ)"
 ~~~
 
-The final expression must print the ReactiveLJ class. Check the reported
-hoomd.__file__ carefully when multiple HOOMD installations are available.
-
-The current ReactiveLJ force supports only single-rank simulations. Do not
-launch the generator with multiple MPI ranks or multiple GPUs for one
-replicate. Parallelism is provided by the SLURM job arrays, with one
-independent replicate per array task.
+ReactiveLJ supports one MPI rank per simulation. The Slurm arrays run
+independent replicates, each using one GPU for the melt and MPCD systems.
 
 ## ReactiveLJ implementation
 
 ### Python interface
 
-The public interface is
-hoomd.md.many_body.ReactiveLJ, implemented in
-[hoomd-blue/hoomd/md/many_body.py](hoomd-blue/hoomd/md/many_body.py).
-The three generator scripts all construct it in the same way:
+ReactiveLJ is defined in
+[hoomd-blue/hoomd/md/many_body.py](hoomd-blue/hoomd/md/many_body.py)
+and added to the integrator as follows:
 
 ~~~python
 nlist = hoomd.md.nlist.Cell(buffer=0.4)
@@ -138,8 +120,6 @@ reactive = hoomd.md.many_body.ReactiveLJ(
 integrator.forces.append(reactive)
 ~~~
 
-The parameters are:
-
 | Parameter | Meaning | Default when omitted |
 | --- | --- | --- |
 | nlist | HOOMD neighbor list used by the force | required |
@@ -149,16 +129,16 @@ The parameters are:
 | r_cut | Pair cutoff | 1.5 sigma |
 | weakening_inner | Inner edge of the coordination taper | 1.3 sigma |
 | weakening_outer | Outer edge of the coordination taper | 1.5 sigma |
-| weakening_exponent | Non-negative coordination attenuation exponent p | 4 in these workflows |
+| weakening_exponent | Crowding-weakening exponent p (nonnegative) | 4 in these workflows |
 | smooth_elbow | Enable Hermite smoothing near the LJ elbow | true |
 | smooth_kappa | Smoothing-window prefactor | 0.05 |
 | smooth_beta | Exponent controlling closure of the smoothing window | 1 |
 
-weakening_outer must be larger than weakening_inner and no larger than r_cut.
-The neighbor list and reactive particle type cannot be changed after the force
-is attached. Scalar parameters can be updated after attachment.
+The coordination window satisfies `weakening_inner < weakening_outer <= r_cut`.
+Scalar parameters can be changed after the force is attached; the neighbor
+list and reactive particle type remain fixed.
 
-### Source-file map
+### Implementation files
 
 | File | Responsibility |
 | --- | --- |
@@ -172,7 +152,7 @@ is attached. Scalar parameters can be updated after attachment.
 | [CMakeLists.txt](hoomd-blue/hoomd/md/CMakeLists.txt) | Adds CPU and GPU sources/headers to the HOOMD MD build |
 | [module-md.cc](hoomd-blue/hoomd/md/module-md.cc) | Registers CPU and GPU pybind11 classes in the compiled _md module |
 
-The CPU and GPU paths implement the same three conceptual stages:
+Both implementations use three steps:
 
 1. Compute a smooth local coordination for every reactive particle.
 2. Accumulate the derivative of total energy with respect to coordination
@@ -180,46 +160,39 @@ The CPU and GPU paths implement the same three conceptual stages:
 3. Evaluate the pair and coordination-dependent forces, energy, and optional
    virial tensor.
 
-The GPU implementation performs these as three tuned kernels. The CPU
-implementation uses half neighbor-list storage; GPU execution requires full
-neighbor-list storage. Both implementations reject domain-decomposed
-multi-rank simulations.
+The GPU implementation uses three kernels. The CPU uses a half neighbor list,
+while the GPU uses a full neighbor list.
 
-The LiuOConnorTersoffForceCompute files in the same directory implement the
-separate isotropic Tersoff comparison model. They are not required by the
-ReactiveLJ workflows described below.
+The `LiuOConnorTersoffForceCompute` files in the same directory implement the
+isotropic Tersoff model used for the computational comparison.
 
-### Epsilon-zero behavior
+### Non-associating reference
 
-The ReactiveLJ Python class requires positive epsilon. Consequently, all three
-generator scripts handle epsilon less than or equal to zero by not constructing
-ReactiveLJ. Sticky-sticky interactions then use the same WCA repulsion as all
-other bead pairs. Sticker type labels remain in the trajectory for analysis,
-but the beads are dynamically non-associating.
+For `epsilon <= 0`, the generators use WCA interactions for all bead pairs
+and omit the ReactiveLJ force. Sticker labels are retained for analysis.
 
-## Adapt the workflows to another HPC cluster
+## Cluster setup
 
-Do this before submitting any job. The checked-in SLURM scripts contain
-Princeton-specific environment settings.
+The Slurm scripts use our Princeton cluster settings. Update the environment,
+resource requests, and output paths for your cluster before submitting runs.
 
-### 1. Replace the Conda environment
+### Python environment
 
-Every primary entry point currently contains:
+The main submission scripts load the environment with:
 
 ~~~bash
 module load anaconda3/2025.12
 conda activate '/home/mc7345/anaconda3/envs/reactiveLJ_paper'
 ~~~
 
-Replace both lines with the module and environment used on the target cluster.
-For example:
+Replace these with your module and environment, for example:
 
 ~~~bash
 module load <your-anaconda-or-mamba-module>
 conda activate /path/to/your/reactiveLJ-environment
 ~~~
 
-At minimum, change these six files:
+The main scripts are:
 
 - simulation_package/melt/generate_data.slurm
 - simulation_package/melt/run_analysis.slurm
@@ -228,31 +201,23 @@ At minimum, change these six files:
 - simulation_package/single_chain/generate_data.slurm
 - simulation_package/single_chain/run_analysis.slurm
 
-The auxiliary plotting, cleaning, validation, and extension SLURM scripts also
-contain the same path. Find every remaining user-specific path with:
+The plotting, cleaning, validation, and extension scripts use the same
+environment. To find paths that need updating:
 
 ~~~bash
 rg -n "/home/mc7345|/scratch/gpfs/WEBB/(mc7345|chertok)|matthewchertok" \
   simulation_package --glob "*.slurm" --glob "*.py"
 ~~~
 
-Do not replace the URL in .gitmodules: that URL identifies the public
-HOOMD-blue submodule rather than a filesystem path.
+For the virial-extension workflow, `REACTIVELJ_SUPPORT_SITE_PACKAGES` selects
+additional Python packages when HOOMD and the analysis dependencies are in
+separate environments. Its defaults are in
+`simulation_package/melt/data_generation/extend_virial_trajectory.py` and
+`simulation_package/melt/extend_simulations_frequent_virial_sampling.slurm`.
 
-One Python source file has an additional fallback that must be changed if the
-virial-extension workflow is used:
+### Slurm settings
 
-- simulation_package/melt/data_generation/extend_virial_trajectory.py:
-  REACTIVELJ_SUPPORT_SITE_PACKAGES;
-- simulation_package/melt/extend_simulations_frequent_virial_sampling.slurm:
-  the default REACTIVELJ_SUPPORT_SITE_PACKAGES value.
-
-Those values must point to a compatible site-packages directory only when a
-split custom-HOOMD/support-package environment is actually needed.
-
-### 2. Adjust scheduler directives
-
-Review the #SBATCH header in every submitted script:
+Adjust the `#SBATCH` settings for your allocation:
 
 - partition/queue and account or allocation;
 - GPU resource syntax (for example --gres=gpu:1);
@@ -260,10 +225,8 @@ Review the #SBATCH header in every submitted script:
 - job-array range and concurrency limit; and
 - log output paths.
 
-Melt and MPCD generation require one GPU per array task. The checked-in
-single-chain generator defaults to DEVICE=cpu and does not request a GPU. If
-setting DEVICE=gpu for that workflow, also add the cluster's GPU partition and
-GPU resource directives.
+Melt and MPCD jobs use one GPU per array task. Single-chain jobs default to
+`DEVICE=cpu`; for `DEVICE=gpu`, also request a GPU in the Slurm header.
 
 The generator arrays assume five epsilon values and ten replicates:
 
@@ -274,43 +237,34 @@ tasks = 5 * 10 = 50
 array indices = 0-49
 ~~~
 
-If EPSILONS or N_REP changes, update --array so that its upper bound is
-number_of_epsilons * N_REP - 1. The value after % is only the maximum number of
+When changing `EPSILONS` or `N_REP`, set the upper `--array` index to
+`number_of_epsilons * N_REP - 1`. The value after `%` limits the number of
 concurrent tasks.
 
-The generation scripts use scontrol requeue when they approach their soft
-walltime cap. Confirm that the cluster permits user requeue operations. Keep
-WALLTIME_CAP_SECONDS shorter than the requested #SBATCH walltime. If requeue is
-unavailable, submit shorter runs manually with --resume or adapt the wrapper to
-resubmit checkpointed tasks.
+Runs checkpoint and use `scontrol requeue` near `WALLTIME_CAP_SECONDS`, which
+should be shorter than the Slurm walltime. If your cluster does not allow
+requeueing, restart from the checkpoint with `--resume`.
 
-### 3. Choose data locations
+### Data locations
 
-The primary scripts derive code paths from their own location; no
-Matthew-specific repository path is needed. By default, large outputs go under
-each system's data_generation/outputs directory.
-
-For melt and single-chain jobs, set OUTPUT_ROOT at submission time to place
-data on project or scratch storage:
+Outputs default to each system's `data_generation/outputs` directory. For
+melt and single-chain jobs, set `OUTPUT_ROOT` to use another location:
 
 ~~~bash
 OUTPUT_ROOT=/path/to/project/reactiveLJ/melt sbatch generate_data.slurm
 ~~~
 
-The MPCD wrapper currently passes
-$WORK_DIR/data_generation/outputs explicitly. To relocate MPCD data, edit its
---output-root argument or run run_reactive_lj.py directly with a different
---output-root.
+For MPCD, change the wrapper's `--output-root` argument or pass it directly
+to `run_reactive_lj.py`.
 
-If outputs are moved, also change the input roots in the corresponding cleaner
-and analysis wrappers. MPCD run_analysis.slurm accepts INPUT_ROOT as an
-environment variable. Melt and single-chain run_analysis.slurm currently use
-paths under their own WORK_DIR and must be edited when data lives elsewhere.
+Update the cleaning and analysis paths to match. MPCD analysis accepts
+`INPUT_ROOT` at submission; melt and single-chain analysis paths are set in
+their `run_analysis.slurm` files.
 
-### 4. Create log directories before submission
+### Submit from the system directory
 
-SLURM opens the output file before the script body runs. Create each log
-directory first and submit from the system directory:
+Create `logs` before submission because Slurm opens its log files before
+running the script:
 
 ~~~bash
 cd simulation_package/melt
@@ -318,25 +272,20 @@ mkdir -p logs
 sbatch generate_data.slurm
 ~~~
 
-Repeat for mpcd and single_chain. Submitting from these directories also keeps
-relative SLURM log paths in the expected location.
+Use the corresponding directory for MPCD or single-chain runs.
 
-## Common simulation behavior
+## Simulation protocol and outputs
 
-Each generator:
+Each replicate starts from an equilibrated non-associating system. Stickers
+are then assigned, ReactiveLJ is turned on for positive epsilon, and the
+system is equilibrated further before production. Seeds are determined by
+epsilon and replicate index unless `--seed` is supplied.
 
-- creates one deterministic replicate from epsilon and replicate index unless
-  --seed is supplied;
-- equilibrates a non-associating system;
-- assigns evenly spaced sticker types;
-- ramps/enables ReactiveLJ only when epsilon is positive;
-- performs an additional no-output equilibration/burn-in;
-- writes production data in chunks;
-- updates metadata.json after every checkpoint;
-- exits with status 3 near the soft walltime cap; and
-- is requeued by the SLURM wrapper until metadata reports completion.
+Production runs are checkpointed in chunks. The generator updates
+`metadata.json` after each checkpoint and exits with status 3 near the
+walltime limit so that the Slurm wrapper can requeue the job.
 
-For all systems, output directories follow:
+Replicate outputs are organized as:
 
 ~~~text
 data_generation/outputs/
@@ -347,13 +296,9 @@ data_generation/outputs/
         └── trajectory.gsd
 ~~~
 
-Melt and MPCD runs additionally write msd_trajectory.gsd and
-virial_tensor_log.gsd. metadata.json is the source of truth for physical
-parameters, sampling intervals, run status, completed production steps, and
-checkpoint information.
-
-Do not start a non-resume run in a nonempty replicate directory. The scripts
-deliberately stop rather than overwrite existing data.
+Melt and MPCD runs also write `msd_trajectory.gsd` and `virial_tensor_log.gsd`.
+Each `metadata.json` records the parameters, sampling intervals, completed
+steps, and checkpoint status. Use `--resume` to continue an existing run.
 
 ## Melt workflow
 
@@ -364,8 +309,8 @@ temperature 1, with four evenly spaced stickers per chain. It uses FENE bonds,
 a bending stiffness of 1.5, WCA baseline interactions, dt=0.005, and
 weakening exponent p=4.
 
-The checked-in SLURM defaults sweep epsilon = 0, 6, 12, 15, and 18 with ten
-replicates each. Important wrapper defaults include:
+The Slurm script runs epsilon = 0, 6, 12, 15, and 18 with ten replicates each.
+Its main defaults are:
 
 - FRAME_STEPS=200000;
 - VIRIAL_LOG_STEPS=5000;
@@ -388,18 +333,17 @@ mkdir -p logs
 sbatch generate_data.slurm
 ~~~
 
-Override wrapper parameters through exported environment variables:
+Parameters can be set at submission, for example:
 
 ~~~bash
 N_REP=2 N_CHAINS=100 FRAME_STEPS=10000 PRODUCTION_TAU_R0=1 \
   sbatch --array=0-9%2 generate_data.slurm
 ~~~
 
-That example is a small workflow test, not a production state point. The array
-still has ten tasks because five epsilon values times two replicates equals
-ten.
+This example runs a small test with five epsilon values and two replicates
+per value.
 
-To run one replicate interactively inside an allocated GPU job:
+To run one replicate within a GPU allocation:
 
 ~~~bash
 python data_generation/run_reactive_lj.py \
@@ -412,17 +356,14 @@ python data_generation/run_reactive_lj.py \
   --resume
 ~~~
 
-Use python data_generation/run_reactive_lj.py --help for every available
-override.
+Additional options are listed by
+`python data_generation/run_reactive_lj.py --help`.
 
-### Clean checkpoint/requeue artifacts
+### Clean restarted trajectories
 
-Requeueing can append an overlapping trajectory suffix after restart. The
-analysis code contains overlap-aware readers, but the standard melt analysis
-wrapper intentionally reads data_generation/outputs_clean.
-
-For the direct eps_* layout produced by generate_data.slurm, run the cleaner in
-a CPU allocation with:
+A restarted run can append frames that overlap an earlier part of the
+trajectory. The melt analysis reads `data_generation/outputs_clean`, so first
+run the cleaner in a CPU allocation:
 
 ~~~bash
 cd simulation_package/melt
@@ -436,13 +377,12 @@ python data_generation/clean_requeued_outputs.py \
   --apply
 ~~~
 
-Omit --apply for a dry run. Do not use --swap until the manifest has been
-reviewed; --swap renames the raw and clean trees.
+Omit `--apply` to preview the changes. The command preserves the raw data;
+`--swap` exchanges the raw and cleaned directories.
 
-Important: the checked-in melt clean_requeued_outputs.slurm currently loops
-over p_2 and p_8 parameter-sweep subtrees. It is suitable for that layout but
-not the direct eps_* layout unless TARGET_P_ROOTS/the command body is adapted.
-The direct Python command above handles the standard generator output.
+The command above handles the standard `eps_*` output layout.
+`clean_requeued_outputs.slurm` is configured for the `p_2` and `p_8` sweeps;
+edit `TARGET_P_ROOTS` and its command if using it for another layout.
 
 ### Analyze melt data
 
@@ -454,8 +394,8 @@ mkdir -p logs
 sbatch run_analysis.slurm
 ~~~
 
-The wrapper reads data_generation/outputs_clean, analyzes p=4 by default, and
-writes analysis/results. It computes the selected families of:
+The analysis reads `data_generation/outputs_clean`, uses `p=4` by default,
+and writes `analysis/results`. It calculates:
 
 - sticker bonding, valence, persistence, brachiation, and exchange statistics;
 - intra- versus intermolecular bonding;
@@ -463,9 +403,8 @@ writes analysis/results. It computes the selected families of:
 - sampled monomer MSD; and
 - stress relaxation from the virial log.
 
-The main products are analysis/results/summary.json,
-analysis/results/summary.csv, per-epsilon CSV/JSON files, and publication
-plots. To run selected families directly:
+Results include `summary.json`, `summary.csv`, files for each epsilon, and
+plots. To select analyses directly:
 
 ~~~bash
 python analysis/analyze_trajectories.py \
@@ -478,7 +417,7 @@ python analysis/analyze_trajectories.py \
 Valid analysis selections are all, msd, stress_modulus, bond_statistics,
 cluster_distribution, and gelation_epsilon.
 
-Specialized melt wrappers provide targeted or publication-specific reruns:
+Additional melt scripts include:
 
 - run_full_fft_stress_relaxation.slurm: full FFT stress-relaxation analysis;
 - run_msd_plot.slurm: MSD parameter-sweep plot;
@@ -487,16 +426,13 @@ Specialized melt wrappers provide targeted or publication-specific reruns:
 - make_exchange_rate_plot.slurm: exchange-rate plot from summary.csv; and
 - run_tau_s_tau_b_vs_dump_interval.slurm: sampling-interval sensitivity.
 
-Review each wrapper's input/output paths and Conda activation before use.
-
 ## MPCD polymer-solution workflow
 
 ### Model and defaults
 
-The MPCD generator uses 40-bead chains with four stickers each in a box based
-on the 4,000-chain melt reference volume. It derives the number of chains from
-the requested polymer weight fraction and snaps the box length to the MPCD
-cell grid. Default solution parameters include:
+The MPCD generator uses 40-bead chains with four stickers each. The box is
+based on the 4,000-chain melt volume and adjusted to fit the MPCD cell grid;
+the number of chains is set by the polymer weight fraction. Defaults are:
 
 - polymer weight fraction 0.02;
 - MPCD number density 5;
@@ -506,9 +442,8 @@ cell grid. Default solution parameters include:
 - SRD angle 130 degrees; and
 - weakening exponent p=4.
 
-The epsilon sweep, replicate count, equilibration stages, production target,
-sampling intervals, checkpointing, and job-array mapping otherwise mirror the
-melt wrapper.
+The epsilon values, replicate count, equilibration stages, production length,
+sampling intervals, and job-array setup follow the melt workflow.
 
 ### Generate MPCD data
 
@@ -522,7 +457,7 @@ Common overrides include POLYMER_WEIGHT_FRACTION, MPCD_NUMBER_DENSITY,
 COLLISION_PERIOD, FRAME_STEPS, VIRIAL_LOG_STEPS, PRODUCTION_TAU_R0,
 WEAKENING_EXPONENT, and N_REP.
 
-For one allocated-GPU replicate:
+For one replicate within a GPU allocation:
 
 ~~~bash
 python data_generation/run_reactive_lj.py \
@@ -538,7 +473,7 @@ python data_generation/run_reactive_lj.py \
 
 ### Clean and analyze MPCD data
 
-The MPCD cleaner is already configured for the standard output layout:
+Clean restarted MPCD trajectories with:
 
 ~~~bash
 cd simulation_package/mpcd
@@ -546,9 +481,9 @@ mkdir -p logs
 sbatch clean_requeued_outputs.slurm
 ~~~
 
-It writes data_generation/outputs_clean and leaves the raw tree unchanged by
-default. Set APPLY=0 for a dry run. Avoid SWAP=1 until the generated manifest
-has been reviewed.
+This writes `data_generation/outputs_clean` and preserves the raw data.
+Use `APPLY=0` to preview the changes; `SWAP=1` exchanges the raw and cleaned
+directories.
 
 Run the main analysis with:
 
@@ -556,18 +491,18 @@ Run the main analysis with:
 sbatch run_analysis.slurm
 ~~~
 
-To analyze a relocated clean tree:
+For cleaned data stored elsewhere:
 
 ~~~bash
 INPUT_ROOT=/path/to/mpcd/outputs_clean sbatch run_analysis.slurm
 ~~~
 
-The analysis discovers trajectory.gsd and metadata.json recursively, uses
-msd_trajectory.gsd and virial_tensor_log.gsd when present, aggregates
-replicates by epsilon, and writes analysis/results. Outputs include
-summary.json, summary.csv, per-epsilon properties and correlations, and plots
-for bonding, gelation, cluster sizes, exchange rates, persistence/brachiation,
-sampled-monomer diffusion/MSD, and cluster evolution.
+The analysis reads the trajectories and metadata, averages replicates by
+epsilon, and writes `analysis/results`. Outputs include `summary.json`,
+`summary.csv`, and properties, correlations, and plots for each epsilon.
+MSD and stress analyses use `msd_trajectory.gsd` and `virial_tensor_log.gsd`
+when present. Other analyses cover bonding, gelation, cluster sizes,
+turnover, and sticker-state correlations.
 
 Additional wrappers include run_full_fft_stress_relaxation.slurm,
 run_bond_persistence_vs_time_lag.slurm, and
@@ -578,9 +513,8 @@ run_tau_s_tau_b_vs_dump_interval.slurm.
 ### Model and defaults
 
 The single-chain generator uses one 400-bead chain with 40 evenly spaced
-stickers in a cubic box of side length 100. The SLURM wrapper defaults to CPU
-execution and sweeps the same five epsilon values with ten replicates. Its
-important defaults are:
+stickers in a cubic box of side length 100. It defaults to CPU execution
+and the same five epsilon values with ten replicates. Its main defaults are:
 
 - FRAME_STEPS=10000;
 - UNSTICKY_EQ_STEPS=100000;
@@ -593,8 +527,8 @@ important defaults are:
 - DEVICE=cpu; and
 - WEAKENING_EXPONENT=4.
 
-Unlike melt and MPCD, trajectory.gsd contains the entire chain, and no separate
-MSD or virial GSD is written.
+For single-chain runs, `trajectory.gsd` contains all beads and is used for
+MSD analysis. There are no separate MSD or virial trajectories.
 
 ### Generate single-chain data
 
@@ -645,14 +579,14 @@ sampling-interval sensitivity analysis.
 
 ## Monitoring and troubleshooting
 
-Check array status and logs with the scheduler tools available on the cluster:
+Check job status and follow a log with:
 
 ~~~bash
 squeue -u "$USER"
 tail -f logs/generate_data_<job>_<task>.out
 ~~~
 
-Useful checks include:
+To check the installation and locate run metadata:
 
 ~~~bash
 # Confirm the custom force is installed.
@@ -667,7 +601,7 @@ rg -n "/home/|/scratch/|conda activate|module load" . \
   --glob "!hoomd-blue/build*/**"
 ~~~
 
-Common failures:
+If a run or analysis stops, check the following:
 
 - ReactiveLJ is missing: the job imported an upstream or different HOOMD
   installation. Check hoomd.__file__ and rebuild/install into the active
@@ -685,13 +619,8 @@ Common failures:
 - Analysis finds no runs: verify the input root and the expected
   eps_*/rep_*/trajectory.gsd plus metadata.json layout.
 
-## Reproducibility notes
-
-- Record the parent commit and the hoomd-blue submodule commit with
-  git rev-parse HEAD and git -C hoomd-blue rev-parse HEAD.
-- Preserve metadata.json with every replicate.
-- Record environment exports and any edited #SBATCH directives.
-- Keep raw output trees until cleaned-output manifests and analysis results
-  have been validated.
-- When changing frame spacing, rerun the sampling-interval sensitivity tools
-  before comparing bond persistence or brachiation times.
+Keep `metadata.json` with each replicate, along with the run settings and
+repository versions (`git rev-parse HEAD` and `git -C hoomd-blue rev-parse HEAD`).
+Retain the raw trajectories while checking cleaned data and analysis results.
+If the saved-frame interval changes, repeat the sampling-interval analysis
+before comparing sticker correlation times.

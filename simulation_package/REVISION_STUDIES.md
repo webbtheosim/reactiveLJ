@@ -1,23 +1,17 @@
 # Revision studies
 
-These add-ons contain the implementation, run settings, analysis code, and
-numeric figure data for the ReactiveLJ manuscript revisions.
+These folders contain the code, run settings, and cached results for the
+additional studies in our ReactiveLJ revisions.
 
 | Study | Contents |
 | --- | --- |
-| [ReactiveAH comparison](melt/reactive_ah_comparison_20261029) | Separate CPU/CUDA force extension; 24 matched melt runs; replicate caches and analysis |
-| [Smoothing sweep](melt/smoothing_sweep_20261006) | 252 melt runs over nine smoothing settings; replicate summaries and pair correlations |
-| [Three-body energetics](three_body_barriers) | Full three-distance exchange paths, saddle refinement, coordination curves, and Figure 2 data |
+| [ReactiveAH comparison](melt/reactive_ah_comparison_20261029) | ReactiveAH CPU/CUDA implementation and 24 matched melt simulations |
+| [Smoothing sweep](melt/smoothing_sweep_20261006) | 252 melt simulations across nine smoothing-parameter combinations |
+| [Three-body energetics](three_body_barriers) | Exchange barriers, coordination curves, and data for Figure 2 |
 
-The force equations, frozen simulation runners, analysis estimators, and
-numeric caches are the versions used for the revision. Release changes
-resolve paths relative to each campaign, make environment selection portable,
-and allow cached plotting without a locally compiled GPU extension.
-The original study scripts and the repository's HOOMD submodule pin are unchanged.
+## Regenerate the figures
 
-## Replot the published data
-
-From the repository root, in a Python environment with the analysis dependencies:
+From the repository root, install the analysis dependencies and run:
 
 ```bash
 python -m pip install -r simulation_package/revision-analysis-requirements.txt
@@ -26,28 +20,20 @@ python simulation_package/melt/smoothing_sweep_20261006/plot_figures.py
 python simulation_package/three_body_barriers/plot_three_body.py
 ```
 
-HOOMD and a GPU are not required for these commands. The ReactiveAH caches
-contain all 24 replicate arrays. The smoothing release includes all nine
-case summaries, 252 replicate results, and replicate pair-correlation curves.
-The three-body release includes all 225 barrier values and the convergence
-checks. The study READMEs describe how to regenerate these data from simulations
-or numerical calculations. Large GSD trajectories and shared initial melts
-are not included; the supplied launchers generate new runs with the recorded
-parameters and seeds. Cached summaries can be reproduced without those trajectories.
+These commands use the cached data and run on a CPU without HOOMD. The full
+GSD trajectories and shared initial melts are not included. Each study's
+README describes how to generate new data using the recorded settings and seeds.
 
-The manuscript figures use Arial at 10 pt. Install Arial locally, or set
-`REACTIVELJ_FONT_DIR` to a directory containing your licensed font files.
-Without Arial, plotting uses Matplotlib's DejaVu Sans. `REACTIVELJ_FONT` can
-select another installed font. This changes typography only.
+The plots use 10 pt Arial when available and DejaVu Sans otherwise. Set
+`REACTIVELJ_FONT_DIR` to your font directory, or use `REACTIVELJ_FONT` to
+select another installed font.
 
-## Simulation dependency
+## Run the simulations
 
-The revision campaigns used custom HOOMD 6.0.0 at commit
+The revision simulations used HOOMD 6.0.0 at commit
 `485771cd90b48b896f1fbb7cec35a8b14c9116ee` of
 [conservative-reactiveLJ](https://github.com/matthewchertok/conservative-reactiveLJ).
-The launchers check this version. It is an ancestor of the main repository's
-newer HOOMD pin. To build the revision environment, select this commit in a
-separate source checkout and follow the main README's GPU build instructions:
+The run scripts check this version. To obtain it:
 
 ```bash
 git clone https://github.com/matthewchertok/conservative-reactiveLJ.git hoomd-revision-source
@@ -55,13 +41,13 @@ git -C hoomd-revision-source checkout 485771cd90b48b896f1fbb7cec35a8b14c9116ee
 git -C hoomd-revision-source submodule update --init --recursive
 ```
 
-Use a separate Python environment, a compatible CUDA toolkit and CuPy build,
-and the recorded analysis dependencies. The study used CUDA 12.9 and A100 GPUs.
-The ReactiveAH extension builds against that installed HOOMD package; it does
-not replace or modify ReactiveLJ. The small source-license file accompanies
-its HOOMD-derived implementation.
+Use a separate Python environment and follow the
+[HOOMD build instructions](../README.md#build-the-custom-hoomd-blue),
+substituting `hoomd-revision-source` for `hoomd-blue`.
+We used CUDA 12.9 and A100 GPUs. Install a compatible CuPy version and the
+analysis dependencies above. ReactiveAH is built as a separate extension
+against this HOOMD installation, as described in its study README.
 
-The Slurm files retain the original task counts and concurrency limits.
-Activate your environment before submission and adjust cluster-specific
-resource directives such as `--constraint=nomig` if needed. No jobs are
-submitted by the cached plotting commands.
+Before submitting the Slurm scripts, activate your environment and adjust
+the resource requests for your cluster, including settings such as
+`--constraint=nomig`.

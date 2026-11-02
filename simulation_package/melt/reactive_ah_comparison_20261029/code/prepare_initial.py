@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import sys
 import hoomd
-from common import ROOT, manifest, task_index, require_validation, sha256
+from common import ROOT, manifest, task_index, require_validation, sha256, require_hoomd_build
 sys.path.insert(0, str(ROOT/'code/reference'))
 import run_reactive_lj as reference
 
@@ -16,7 +16,7 @@ def main():
     args = parser.parse_args()
     require_validation()
     m = manifest()
-    assert hoomd.version.git_sha1 == m['hoomd_git_sha1']
+    require_hoomd_build(hoomd.version.git_sha1, m)
     task = m['pairs'][task_index(args.pair_id)]
     cfg = reference.SimulationConfig()
     for name, value in m['baseline_configuration'].items():

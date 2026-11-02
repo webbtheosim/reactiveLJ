@@ -5,7 +5,7 @@ from pathlib import Path
 import subprocess
 import sys
 import hoomd
-from common import ROOT, manifest, task_index, require_validation, sha256, output_dir
+from common import ROOT, manifest, task_index, require_validation, sha256, output_dir, require_hoomd_build
 
 
 def command(task, m):
@@ -31,7 +31,7 @@ def main():
         return 0
     require_validation()
     assert json.loads((ROOT/'validation/workflow.json').read_text())['status']=='passed'
-    assert hoomd.version.git_sha1 == m['hoomd_git_sha1']
+    require_hoomd_build(hoomd.version.git_sha1, m)
     path = Path(task['initial_state'])
     initial = json.loads(path.with_suffix('.json').read_text())
     assert initial['status'] == 'complete' and initial['sha256'] == sha256(path)

@@ -43,18 +43,20 @@ select another installed font. This changes typography only.
 ## Simulation dependency
 
 The revision campaigns used custom HOOMD 6.0.0 at commit
-`485771cd90b48b896f1fbb7cec35a8b14c9116ee` of
-[conservative-reactiveLJ](https://github.com/matthewchertok/conservative-reactiveLJ).
-The launchers check this version. It is an ancestor of the main repository's
-newer HOOMD pin. To build the revision environment, select this commit in a
-separate source checkout and follow the main README's GPU build instructions:
+`485771cd90b48b896f1fbb7cec35a8b14c9116ee`. The original fork is private;
+the required source is provided in the public
+[HOOMD source bundle](../source_dependencies/hoomd/README.md).
+The source-only public release has commit ID
+`b4c0ad708bfc4ce1ca6aa0b4692b5f8f53b0c395`; its runtime and build source
+matches the recorded study version byte for byte. Launchers accept either
+this public build or the original recorded build. From the repository root,
+prepare a separate source checkout using public upstream HOOMD and the bundle:
 
 ```bash
-git clone https://github.com/matthewchertok/conservative-reactiveLJ.git hoomd-revision-source
-git -C hoomd-revision-source checkout 485771cd90b48b896f1fbb7cec35a8b14c9116ee
-git -C hoomd-revision-source submodule update --init --recursive
+bash source_dependencies/hoomd/checkout.sh revision ../hoomd-revision-source
 ```
 
+Follow the main README's GPU build instructions inside `../hoomd-revision-source`.
 Use a separate Python environment, a compatible CUDA toolkit and CuPy build,
 and the recorded analysis dependencies. The study used CUDA 12.9 and A100 GPUs.
 The ReactiveAH extension builds against that installed HOOMD package; it does

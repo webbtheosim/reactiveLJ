@@ -15,7 +15,8 @@ otherwise.
 
 | Path | Purpose |
 | --- | --- |
-| [hoomd-blue](hoomd-blue) | Git submodule containing the custom HOOMD-blue source |
+| `hoomd-blue` | Historical custom HOOMD-blue submodule pin |
+| [source_dependencies/hoomd](source_dependencies/hoomd) | Public custom HOOMD source and setup |
 | [simulation_package/melt](simulation_package/melt) | Melt generation, cleanup, analysis, and plotting |
 | [simulation_package/mpcd](simulation_package/mpcd) | MPCD-solution generation, cleanup, analysis, and plotting |
 | [simulation_package/single_chain](simulation_package/single_chain) | Single-chain generation and analysis |
@@ -32,22 +33,22 @@ exact HOOMD version used for these campaigns.
 
 ## Clone the repository
 
-Clone with submodules so that the custom HOOMD-blue source and its nested
-dependencies are present:
+Clone the repository, then prepare the custom HOOMD source from the included
+public source bundle:
 
 ~~~bash
-git clone --recurse-submodules https://github.com/webbtheosim/reactiveLJ.git
+git clone https://github.com/webbtheosim/reactiveLJ.git
 cd reactiveLJ
-git submodule update --init --recursive
+bash source_dependencies/hoomd/checkout.sh repository ../hoomd-public-source
 ~~~
 
-The parent repository records one exact commit of
-https://github.com/matthewchertok/conservative-reactiveLJ. To update the
-checkout to the recorded commit after pulling the parent repository, run:
-
-~~~bash
-git submodule update --init --recursive
-~~~
+The historical submodule URL points to a private fork. The
+[source bundle](source_dependencies/hoomd/README.md) provides the same runtime
+source in public release commits without requiring access to that fork.
+Use the commands above instead of `git clone --recurse-submodules`.
+The separate source directory leaves the original submodule pin unchanged.
+The [revision guide](simulation_package/REVISION_STUDIES.md) selects the
+older source version used for the revision campaigns.
 
 ## Software environment
 
@@ -70,10 +71,11 @@ when the single-chain SLURM job uses the CPU device.
 
 Activate the environment that will run the simulations, load the compiler and
 CUDA modules required by the local cluster, and build against that same Python
-executable:
+executable. For the revision campaigns, use `../hoomd-revision-source`
+in place of `../hoomd-public-source` below:
 
 ~~~bash
-cd hoomd-blue
+cd ../hoomd-public-source
 git submodule update --init --recursive
 
 cmake -S . -B build -GNinja \
@@ -86,13 +88,13 @@ cmake -S . -B build -GNinja \
 
 cmake --build build --parallel
 cmake --install build
-cd ..
+cd -
 ~~~
 
 For a CPU-only build, use -DENABLE_GPU=OFF. The melt and MPCD production
 scripts request GPUs and their custom virial logger requires a GPU, so a
 CPU-only build is primarily useful for the single-chain workflow and testing.
-See [hoomd-blue/BUILDING.rst](hoomd-blue/BUILDING.rst) for compiler, CUDA/HIP,
+See [HOOMD build documentation](https://github.com/glotzerlab/hoomd-blue/blob/8267227d29a570a27bf16d540fd193e5623dea97/BUILDING.rst) for compiler, CUDA/HIP,
 MPI, and architecture-specific CMake options.
 
 Confirm that Python imports the intended build:
@@ -115,7 +117,7 @@ independent replicate per array task.
 
 The public interface is
 hoomd.md.many_body.ReactiveLJ, implemented in
-[hoomd-blue/hoomd/md/many_body.py](hoomd-blue/hoomd/md/many_body.py).
+`hoomd/md/many_body.py` in the prepared source checkout.
 The three generator scripts all construct it in the same way:
 
 ~~~python
@@ -160,17 +162,19 @@ is attached. Scalar parameters can be updated after attachment.
 
 ### Source-file map
 
+These files are in `hoomd/md` within the prepared public source checkout.
+
 | File | Responsibility |
 | --- | --- |
-| [many_body.py](hoomd-blue/hoomd/md/many_body.py) | User-facing Python class, validation, defaults, CPU/GPU dispatch |
-| [ReactiveLJForceCompute.h](hoomd-blue/hoomd/md/ReactiveLJForceCompute.h) | CPU class declaration, parameters, scratch arrays, neighbor-list ownership |
-| [ReactiveLJForceCompute.cc](hoomd-blue/hoomd/md/ReactiveLJForceCompute.cc) | CPU force/energy/virial calculation and pybind11 export |
-| [ReactiveLJForceComputeGPU.h](hoomd-blue/hoomd/md/ReactiveLJForceComputeGPU.h) | GPU class declaration and autotuner state |
-| [ReactiveLJForceComputeGPU.cc](hoomd-blue/hoomd/md/ReactiveLJForceComputeGPU.cc) | GPU host wrapper, scratch setup, autotuning, and three kernel launches |
-| [ReactiveLJForceComputeGPU.cuh](hoomd-blue/hoomd/md/ReactiveLJForceComputeGPU.cuh) | GPU parameter structure and kernel-launch declarations |
-| [ReactiveLJForceComputeGPU.cu](hoomd-blue/hoomd/md/ReactiveLJForceComputeGPU.cu) | CUDA/HIP device functions and coordination, lambda, and force kernels |
-| [CMakeLists.txt](hoomd-blue/hoomd/md/CMakeLists.txt) | Adds CPU and GPU sources/headers to the HOOMD MD build |
-| [module-md.cc](hoomd-blue/hoomd/md/module-md.cc) | Registers CPU and GPU pybind11 classes in the compiled _md module |
+| `many_body.py` | User-facing Python class, validation, defaults, CPU/GPU dispatch |
+| `ReactiveLJForceCompute.h` | CPU class declaration, parameters, scratch arrays, neighbor-list ownership |
+| `ReactiveLJForceCompute.cc` | CPU force/energy/virial calculation and pybind11 export |
+| `ReactiveLJForceComputeGPU.h` | GPU class declaration and autotuner state |
+| `ReactiveLJForceComputeGPU.cc` | GPU host wrapper, scratch setup, autotuning, and three kernel launches |
+| `ReactiveLJForceComputeGPU.cuh` | GPU parameter structure and kernel-launch declarations |
+| `ReactiveLJForceComputeGPU.cu` | CUDA/HIP device functions and coordination, lambda, and force kernels |
+| `CMakeLists.txt` | Adds CPU and GPU sources/headers to the HOOMD MD build |
+| `module-md.cc` | Registers CPU and GPU pybind11 classes in the compiled _md module |
 
 The CPU and GPU paths implement the same three conceptual stages:
 

@@ -3,6 +3,13 @@ import json
 from pathlib import Path
 
 
+def require_hoomd_build(actual_sha, manifest):
+    build = manifest['hoomd_build']
+    accepted = {build['git_sha1'], build['public_source_git_sha1']}
+    if actual_sha not in accepted:
+        raise RuntimeError(f'Unrecognized HOOMD build: {actual_sha}; expected {sorted(accepted)}')
+
+
 def load_manifest(path):
     path = Path(path).resolve()
     data = json.loads(path.read_text())

@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from campaign import load_manifest
+from campaign import load_manifest, require_hoomd_build
 import subprocess
 import sys
 
@@ -53,11 +53,7 @@ def main() -> int:
 
     import hoomd
 
-    expected_build = manifest["hoomd_build"]["git_sha1"]
-    if hoomd.version.git_sha1 != expected_build:
-        raise RuntimeError(
-            f"HOOMD build changed: {hoomd.version.git_sha1} != {expected_build}"
-        )
+    require_hoomd_build(hoomd.version.git_sha1, manifest)
     return subprocess.run(command, check=False).returncode
 
 

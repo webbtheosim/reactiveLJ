@@ -3,7 +3,6 @@
   "root": ".",
   "python": "python",
   "hoomd_git_sha1": "485771cd90b48b896f1fbb7cec35a8b14c9116ee",
-  "public_source_git_sha1": "b4c0ad708bfc4ce1ca6aa0b4692b5f8f53b0c395",
   "n_replicates": 4,
   "epsilon_values": [
     3,

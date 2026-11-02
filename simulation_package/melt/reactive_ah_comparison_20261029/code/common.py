@@ -28,12 +28,6 @@ def task_index(value):
     return value if value is not None else int(os.environ['SLURM_ARRAY_TASK_ID'])
 
 
-def require_hoomd_build(actual_sha, m):
-    accepted = {m['hoomd_git_sha1'], m['public_source_git_sha1']}
-    if actual_sha not in accepted:
-        raise RuntimeError(f'Unrecognized HOOMD build: {actual_sha}; expected {sorted(accepted)}')
-
-
 def require_validation():
     report = json.loads((ROOT/'validation/force_cpu_gpu.json').read_text())
     assert report['status'] == 'passed' and 'gpu' in report['devices']

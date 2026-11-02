@@ -1,0 +1,9 @@
+{
+  "status": "passed",
+  "checks": [
+    "Known associative/dissociative frame transition",
+    "Constant endpoint-pair correlation",
+    "Known exponential timescale",
+    "Sampling and duration flags"
+  ]
+}

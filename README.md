@@ -23,6 +23,13 @@ otherwise.
 Generated trajectories and analysis results are intentionally excluded from
 Git.
 
+## Revision studies
+
+The [revision studies guide](simulation_package/REVISION_STUDIES.md) provides
+the ReactiveAH CPU/CUDA add-on, smoothing sweep, three-body barrier calculations,
+and cached data for reproducing the revision figures. It also documents the
+exact HOOMD version used for these campaigns.
+
 ## Clone the repository
 
 Clone with submodules so that the custom HOOMD-blue source and its nested

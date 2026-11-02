@@ -1,0 +1,57 @@
+{
+  "status": "passed",
+  "checks": [
+    "Shared initial melt, both GPU force definitions",
+    "Full force ramp and timestep ramp, including dt=0.005 at epsilon=18",
+    "Production checkpoint and completed-run restart",
+    "Saved GSD frame count, analysis metadata, gelation and turnover"
+  ],
+  "smoke_results": [
+    {
+      "model": "ReactiveLJ",
+      "epsilon": 18,
+      "replicate": 1,
+      "seed": 301,
+      "pair_id": 0,
+      "n_frames": 10,
+      "interval": 5.0,
+      "observed_span": 45.0,
+      "gelation_mean": 1.8275000000000006,
+      "phi_pair": 0.9424999999999999,
+      "gelation_first_half": 1.8350000000000002,
+      "gelation_second_half": 1.8200000000000003,
+      "rate_assoc": 0.0,
+      "rate_dissoc": 0.014285714285714285,
+      "associative_events": 0,
+      "dissociative_events": 3,
+      "open_sticker_time": 210.0,
+      "tau_s": 3889.8906884139287,
+      "tau_status": "beyond_observed_span",
+      "trajectory_sha256": "415d84f08f2ecdc61c9429ab55bf8f82f4b88f1d7c477b1d6c2f81b9080730df",
+      "initial_sha256": "356d70ce2a1f8353f9429e8120867093b4d3f55e3bde6e0e6df9234dd2680e9b"
+    },
+    {
+      "model": "ReactiveAH",
+      "epsilon": 18,
+      "replicate": 1,
+      "seed": 301,
+      "pair_id": 0,
+      "n_frames": 10,
+      "interval": 5.0,
+      "observed_span": 45.0,
+      "gelation_mean": 1.8200000000000003,
+      "phi_pair": 0.9399999999999998,
+      "gelation_first_half": 1.8050000000000002,
+      "gelation_second_half": 1.8350000000000002,
+      "rate_assoc": 0.0,
+      "rate_dissoc": 0.01818181818181818,
+      "associative_events": 0,
+      "dissociative_events": 4,
+      "open_sticker_time": 220.0,
+      "tau_s": 10412.867849602568,
+      "tau_status": "beyond_observed_span",
+      "trajectory_sha256": "e73e639e6420b7e73d393bcf62e12f21a00bba043b0a36ca4c75bf7d18dbba8a",
+      "initial_sha256": "356d70ce2a1f8353f9429e8120867093b4d3f55e3bde6e0e6df9234dd2680e9b"
+    }
+  ]
+}

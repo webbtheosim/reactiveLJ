@@ -1,0 +1,58 @@
+[
+  {
+    "path": "src/CMakeLists.txt",
+    "sha256": "240df228400d5268866b581223cb0f5771320c729f4eebebe43ca63ce07b1d9f"
+  },
+  {
+    "path": "src/HOOMD_LICENSE",
+    "sha256": "f22a68da2b61f63ea6f53f7be3e3478d6d3e638fd4b2bb5d6560cedcf09e556a"
+  },
+  {
+    "path": "src/ReactiveAHForceCompute.cc",
+    "sha256": "5581679ff79e48e696f70cd3a4a72637005a3edb10521c18c395a441b663bb39"
+  },
+  {
+    "path": "src/ReactiveAHForceCompute.h",
+    "sha256": "75357ba752c6d53b795cd816cda52d971689c103c70dab28dbbd939bffc032c7"
+  },
+  {
+    "path": "src/ReactiveAHForceComputeGPU.cc",
+    "sha256": "33a8ece03c27ad3d058d021026b932857bdcc0ee27342c999e8bd9331507976d"
+  },
+  {
+    "path": "src/ReactiveAHForceComputeGPU.cu",
+    "sha256": "592465ee72220bf30c84e6766f305012bde487ff426c8f069965bf369458a726"
+  },
+  {
+    "path": "src/ReactiveAHForceComputeGPU.cuh",
+    "sha256": "0f23f9f54bebf683f3ab10a05b808235d384ba6f0a66cd9fe86c883cf863ab43"
+  },
+  {
+    "path": "src/ReactiveAHForceComputeGPU.h",
+    "sha256": "9f212274d78d63a8139b5bc08cfee931b8677cb7f8c467518a5fa3788b18c8dc"
+  },
+  {
+    "path": "src/module.cc",
+    "sha256": "b3266e11b2fc8c22e0b00e36c0aa24ccf86da72965e8ddbde1a5c3a02a6c4c91"
+  },
+  {
+    "path": "code/reactive_ah.py",
+    "sha256": "583a095db19b1bd020e2c79054977f8c2eca9a22f9097ce026c83a44d51837a6"
+  },
+  {
+    "path": "code/matched_runner.py",
+    "sha256": "bb75b0598c99ed25388abb7f92f0eb038c8e1e07a2fd16bc419b16baf464a16d"
+  },
+  {
+    "path": "code/reference/run_reactive_lj.py",
+    "sha256": "b931a3b291f98d7b9fcf524536e00fcabbf350b9ef345aeaae9c144476331b9e"
+  },
+  {
+    "path": "code/reference/analysis_utils.py",
+    "sha256": "7b362c52606b42546477d358843f6cc25706b32bc871b9f5f63bd559547d1f24"
+  },
+  {
+    "path": "code/potentials.py",
+    "sha256": "c2f2b57a884112eb5cc273120a7ffc0dc199af297cc27ae6cebf335ef89727b3"
+  }
+]

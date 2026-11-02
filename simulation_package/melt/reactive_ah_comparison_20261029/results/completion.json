@@ -1,0 +1,21 @@
+{
+  "status": "complete",
+  "n_simulations": 24,
+  "manifest_sha256": "49fd04af95af32b63c09aacbe8730be2cf917d42ea16198a0a7ff75beb1173d7",
+  "uncertainty": "SEM over four independent replicate means or curves; persistence uses 500 replicate bootstrap draws.",
+  "gelation": "(phi_pair - 1/(f-1))/(1/(f-1)), f=4; manuscript mean-field indicator.",
+  "coordination": "Integer bonded-neighbor counts and smooth Ci are both reported. Histograms average framewise fractions within each replicate.",
+  "turnover": "Saved-frame apparent rates, normalized by prior open-sticker exposure; unresolved intermediate events are not counted.",
+  "persistence": "Endpoint pair-state correlation. Hollow down/up triangles denote fits below the 500 tau saved interval or above the 49,500 tau observed span.",
+  "energy_landscape": "Total three-sticker energy relative to the isolated AB dimer plus a separated C. Energies divided by epsilon; identical normalized maps at all three epsilon values.",
+  "figures": [
+    "gelation_time.svg",
+    "gelation_turnover.svg",
+    "pair_persistence.svg",
+    "pair_potentials.svg",
+    "persistence_times.svg",
+    "sticker_coordination.svg",
+    "three_sticker_energy.svg",
+    "weighted_coordination.svg"
+  ]
+}

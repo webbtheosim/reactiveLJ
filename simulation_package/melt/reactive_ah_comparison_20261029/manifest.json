@@ -1,0 +1,373 @@
+{
+  "campaign": "reactive_ah_comparison_20261029",
+  "root": ".",
+  "python": "python",
+  "hoomd_git_sha1": "485771cd90b48b896f1fbb7cec35a8b14c9116ee",
+  "n_replicates": 4,
+  "epsilon_values": [
+    3,
+    12,
+    18
+  ],
+  "tau_R0": 4041.0,
+  "baseline_configuration": {
+    "n_chains": 4000,
+    "chain_length": 40,
+    "density": 0.85,
+    "temperature": 1.0,
+    "fene_k": 30.0,
+    "fene_r0": 1.5,
+    "fene_epsilon": 1.0,
+    "fene_sigma": 1.0,
+    "k_bend": 1.5,
+    "stickers_per_chain": 4,
+    "dt": 0.005,
+    "tau_T": 100.0,
+    "zero_momentum_period": 100,
+    "lj_epsilon": 1.0,
+    "lj_sigma": 1.0,
+    "reactive_sigma": 1.0,
+    "reactive_r_cut": null,
+    "weakening_inner": null,
+    "weakening_outer": null,
+    "weakening_exponent": 4.0,
+    "smooth_elbow": true,
+    "unsticky_equil_steps": 100000,
+    "reactive_equil_steps": 1000000,
+    "sticky_burnin_steps": 1000000,
+    "production_steps": 10000000,
+    "frame_steps": 100000,
+    "virial_log_steps": 10000000,
+    "msd_particles": 1,
+    "angle_table_width": 1000,
+    "nlist_buffer": 0.4,
+    "init_min_dist": 0.8,
+    "init_bond_length": 0.97,
+    "max_chain_attempts": 1000,
+    "max_bead_attempts": 1000
+  },
+  "simulation_options": {
+    "n-chains": 4000,
+    "weakening-exponent": 4,
+    "frame-steps": 100000,
+    "unsticky-equil-steps": 100000,
+    "reactive-equil-steps": 1000000,
+    "sticky-burnin-steps": 1000000,
+    "production-steps": 10000000,
+    "production-chunk-steps": 1000000,
+    "virial-log-steps": 10000000,
+    "msd-particles": 1,
+    "walltime-limit-seconds": 86400,
+    "walltime-safety-buffer-seconds": 600
+  },
+  "pairs": [
+    {
+      "pair_id": 0,
+      "epsilon": 3,
+      "replicate": 1,
+      "seed": 30001,
+      "initial_state": "initial_states/eps_3_rep_001.gsd"
+    },
+    {
+      "pair_id": 1,
+      "epsilon": 3,
+      "replicate": 2,
+      "seed": 30002,
+      "initial_state": "initial_states/eps_3_rep_002.gsd"
+    },
+    {
+      "pair_id": 2,
+      "epsilon": 3,
+      "replicate": 3,
+      "seed": 30003,
+      "initial_state": "initial_states/eps_3_rep_003.gsd"
+    },
+    {
+      "pair_id": 3,
+      "epsilon": 3,
+      "replicate": 4,
+      "seed": 30004,
+      "initial_state": "initial_states/eps_3_rep_004.gsd"
+    },
+    {
+      "pair_id": 4,
+      "epsilon": 12,
+      "replicate": 1,
+      "seed": 120001,
+      "initial_state": "initial_states/eps_12_rep_001.gsd"
+    },
+    {
+      "pair_id": 5,
+      "epsilon": 12,
+      "replicate": 2,
+      "seed": 120002,
+      "initial_state": "initial_states/eps_12_rep_002.gsd"
+    },
+    {
+      "pair_id": 6,
+      "epsilon": 12,
+      "replicate": 3,
+      "seed": 120003,
+      "initial_state": "initial_states/eps_12_rep_003.gsd"
+    },
+    {
+      "pair_id": 7,
+      "epsilon": 12,
+      "replicate": 4,
+      "seed": 120004,
+      "initial_state": "initial_states/eps_12_rep_004.gsd"
+    },
+    {
+      "pair_id": 8,
+      "epsilon": 18,
+      "replicate": 1,
+      "seed": 180001,
+      "initial_state": "initial_states/eps_18_rep_001.gsd"
+    },
+    {
+      "pair_id": 9,
+      "epsilon": 18,
+      "replicate": 2,
+      "seed": 180002,
+      "initial_state": "initial_states/eps_18_rep_002.gsd"
+    },
+    {
+      "pair_id": 10,
+      "epsilon": 18,
+      "replicate": 3,
+      "seed": 180003,
+      "initial_state": "initial_states/eps_18_rep_003.gsd"
+    },
+    {
+      "pair_id": 11,
+      "epsilon": 18,
+      "replicate": 4,
+      "seed": 180004,
+      "initial_state": "initial_states/eps_18_rep_004.gsd"
+    }
+  ],
+  "tasks": [
+    {
+      "pair_id": 0,
+      "epsilon": 3,
+      "replicate": 1,
+      "seed": 30001,
+      "initial_state": "initial_states/eps_3_rep_001.gsd",
+      "task_id": 0,
+      "model": "ReactiveLJ"
+    },
+    {
+      "pair_id": 1,
+      "epsilon": 3,
+      "replicate": 2,
+      "seed": 30002,
+      "initial_state": "initial_states/eps_3_rep_002.gsd",
+      "task_id": 1,
+      "model": "ReactiveLJ"
+    },
+    {
+      "pair_id": 2,
+      "epsilon": 3,
+      "replicate": 3,
+      "seed": 30003,
+      "initial_state": "initial_states/eps_3_rep_003.gsd",
+      "task_id": 2,
+      "model": "ReactiveLJ"
+    },
+    {
+      "pair_id": 3,
+      "epsilon": 3,
+      "replicate": 4,
+      "seed": 30004,
+      "initial_state": "initial_states/eps_3_rep_004.gsd",
+      "task_id": 3,
+      "model": "ReactiveLJ"
+    },
+    {
+      "pair_id": 4,
+      "epsilon": 12,
+      "replicate": 1,
+      "seed": 120001,
+      "initial_state": "initial_states/eps_12_rep_001.gsd",
+      "task_id": 4,
+      "model": "ReactiveLJ"
+    },
+    {
+      "pair_id": 5,
+      "epsilon": 12,
+      "replicate": 2,
+      "seed": 120002,
+      "initial_state": "initial_states/eps_12_rep_002.gsd",
+      "task_id": 5,
+      "model": "ReactiveLJ"
+    },
+    {
+      "pair_id": 6,
+      "epsilon": 12,
+      "replicate": 3,
+      "seed": 120003,
+      "initial_state": "initial_states/eps_12_rep_003.gsd",
+      "task_id": 6,
+      "model": "ReactiveLJ"
+    },
+    {
+      "pair_id": 7,
+      "epsilon": 12,
+      "replicate": 4,
+      "seed": 120004,
+      "initial_state": "initial_states/eps_12_rep_004.gsd",
+      "task_id": 7,
+      "model": "ReactiveLJ"
+    },
+    {
+      "pair_id": 8,
+      "epsilon": 18,
+      "replicate": 1,
+      "seed": 180001,
+      "initial_state": "initial_states/eps_18_rep_001.gsd",
+      "task_id": 8,
+      "model": "ReactiveLJ"
+    },
+    {
+      "pair_id": 9,
+      "epsilon": 18,
+      "replicate": 2,
+      "seed": 180002,
+      "initial_state": "initial_states/eps_18_rep_002.gsd",
+      "task_id": 9,
+      "model": "ReactiveLJ"
+    },
+    {
+      "pair_id": 10,
+      "epsilon": 18,
+      "replicate": 3,
+      "seed": 180003,
+      "initial_state": "initial_states/eps_18_rep_003.gsd",
+      "task_id": 10,
+      "model": "ReactiveLJ"
+    },
+    {
+      "pair_id": 11,
+      "epsilon": 18,
+      "replicate": 4,
+      "seed": 180004,
+      "initial_state": "initial_states/eps_18_rep_004.gsd",
+      "task_id": 11,
+      "model": "ReactiveLJ"
+    },
+    {
+      "pair_id": 0,
+      "epsilon": 3,
+      "replicate": 1,
+      "seed": 30001,
+      "initial_state": "initial_states/eps_3_rep_001.gsd",
+      "task_id": 12,
+      "model": "ReactiveAH"
+    },
+    {
+      "pair_id": 1,
+      "epsilon": 3,
+      "replicate": 2,
+      "seed": 30002,
+      "initial_state": "initial_states/eps_3_rep_002.gsd",
+      "task_id": 13,
+      "model": "ReactiveAH"
+    },
+    {
+      "pair_id": 2,
+      "epsilon": 3,
+      "replicate": 3,
+      "seed": 30003,
+      "initial_state": "initial_states/eps_3_rep_003.gsd",
+      "task_id": 14,
+      "model": "ReactiveAH"
+    },
+    {
+      "pair_id": 3,
+      "epsilon": 3,
+      "replicate": 4,
+      "seed": 30004,
+      "initial_state": "initial_states/eps_3_rep_004.gsd",
+      "task_id": 15,
+      "model": "ReactiveAH"
+    },
+    {
+      "pair_id": 4,
+      "epsilon": 12,
+      "replicate": 1,
+      "seed": 120001,
+      "initial_state": "initial_states/eps_12_rep_001.gsd",
+      "task_id": 16,
+      "model": "ReactiveAH"
+    },
+    {
+      "pair_id": 5,
+      "epsilon": 12,
+      "replicate": 2,
+      "seed": 120002,
+      "initial_state": "initial_states/eps_12_rep_002.gsd",
+      "task_id": 17,
+      "model": "ReactiveAH"
+    },
+    {
+      "pair_id": 6,
+      "epsilon": 12,
+      "replicate": 3,
+      "seed": 120003,
+      "initial_state": "initial_states/eps_12_rep_003.gsd",
+      "task_id": 18,
+      "model": "ReactiveAH"
+    },
+    {
+      "pair_id": 7,
+      "epsilon": 12,
+      "replicate": 4,
+      "seed": 120004,
+      "initial_state": "initial_states/eps_12_rep_004.gsd",
+      "task_id": 19,
+      "model": "ReactiveAH"
+    },
+    {
+      "pair_id": 8,
+      "epsilon": 18,
+      "replicate": 1,
+      "seed": 180001,
+      "initial_state": "initial_states/eps_18_rep_001.gsd",
+      "task_id": 20,
+      "model": "ReactiveAH"
+    },
+    {
+      "pair_id": 9,
+      "epsilon": 18,
+      "replicate": 2,
+      "seed": 180002,
+      "initial_state": "initial_states/eps_18_rep_002.gsd",
+      "task_id": 21,
+      "model": "ReactiveAH"
+    },
+    {
+      "pair_id": 10,
+      "epsilon": 18,
+      "replicate": 3,
+      "seed": 180003,
+      "initial_state": "initial_states/eps_18_rep_003.gsd",
+      "task_id": 22,
+      "model": "ReactiveAH"
+    },
+    {
+      "pair_id": 11,
+      "epsilon": 18,
+      "replicate": 4,
+      "seed": 180004,
+      "initial_state": "initial_states/eps_18_rep_004.gsd",
+      "task_id": 23,
+      "model": "ReactiveAH"
+    }
+  ],
+  "max_concurrent_gpus": 24,
+  "bond_cutoff_definition": "sigma*(26/7)^(1/6), common distance criterion for both models",
+  "frame_interval_tau_LJ": 500.0,
+  "production_duration_tau_LJ": 50000.0,
+  "matching": "Same unsticky GSD positions/velocities and seed per pair; same KG protocol, crowding and cutoff. AH joins at the LJ minimum; RLJ retains Hermite smoothing.",
+  "regularization": "The original 1e-6 coordination regularization gives W_isolated=(1+5e-7)^(-4), retained in both models. Isolated potentials differ by at most (1-W_isolated)*D on their inner branches, about 1.36e-6 epsilon."
+}

@@ -1,0 +1,20 @@
+{
+  "status": "passed",
+  "devices": [
+    "cpu"
+  ],
+  "checks": [
+    "cpu ReactiveAH_0: energy, force, momentum, virial",
+    "cpu ReactiveAH_1: energy, force, momentum, virial",
+    "cpu ReactiveAH_2: energy, force, momentum, virial",
+    "cpu ReactiveLJ_0: energy, force, momentum, virial",
+    "cpu ReactiveLJ_1: energy, force, momentum, virial",
+    "cpu ReactiveLJ_2: energy, force, momentum, virial",
+    "cpu: p=0 agrees with installed ReactiveLJ",
+    "cpu: NVE dimer max absolute drift 5.32316e-06",
+    "Energy joins continuously at the LJ minimum",
+    "Original source, runner and installed force library unchanged"
+  ],
+  "isolated_regularization_W": 0.9999980000024997,
+  "extension_sha256": "24fa7d227fbb63c597395647a20c0f04a0ce162966470f1316878dc341d01c26"
+}

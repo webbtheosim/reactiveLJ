@@ -1,0 +1,674 @@
+[
+  {
+    "p": 0.6,
+    "inner": 1.3,
+    "h": 0.01,
+    "n_axis": 57,
+    "vertices": 185193,
+    "dimer_energy": -0.6796632018224852,
+    "barrier_energy": 0.05347828662452958,
+    "barrier_over_U": 0.07868351042270649,
+    "threshold": -0.6261849151979556,
+    "threshold_bracket_width": 1.2659714387908139e-09,
+    "grid_minimum_energy": -1.0547326479210068,
+    "grid_minimum_over_U": -1.5518460394689464,
+    "grid_minimum_distances": [
+      1.122462048309373,
+      1.122462048309373,
+      1.122462048309373
+    ],
+    "seconds": 1.6600624539423734
+  },
+  {
+    "p": 0.8,
+    "inner": 1.3,
+    "h": 0.01,
+    "n_axis": 57,
+    "vertices": 185193,
+    "dimer_energy": -0.6796631338561854,
+    "barrier_energy": 0.12729064197333917,
+    "barrier_over_U": 0.18728489987552197,
+    "threshold": -0.5523724918828462,
+    "threshold_bracket_width": 1.265971216746209e-09,
+    "grid_minimum_energy": -0.8466777330316055,
+    "grid_minimum_over_U": -1.2457314379078268,
+    "grid_minimum_distances": [
+      1.122462048309373,
+      1.122462048309373,
+      1.122462048309373
+    ],
+    "seconds": 0.08640942396596074
+  },
+  {
+    "p": 1.0,
+    "inner": 1.3,
+    "h": 0.01,
+    "n_axis": 57,
+    "vertices": 185193,
+    "dimer_energy": -0.6796630658898923,
+    "barrier_energy": 0.19477068746939052,
+    "barrier_over_U": 0.2865694742649794,
+    "threshold": -0.4848923784205018,
+    "threshold_bracket_width": 1.2659711057239065e-09,
+    "grid_minimum_energy": -0.6831648439136135,
+    "grid_minimum_over_U": -1.0051522264478743,
+    "grid_minimum_distances": [
+      1.122462048309373,
+      1.49,
+      1.49
+    ],
+    "seconds": 0.0853563949931413
+  },
+  {
+    "p": 1.5,
+    "inner": 1.3,
+    "h": 0.01,
+    "n_axis": 57,
+    "vertices": 185193,
+    "dimer_energy": -0.6796628959741896,
+    "barrier_energy": 0.3324004247556238,
+    "barrier_over_U": 0.48906660452485085,
+    "threshold": -0.3472624712185658,
+    "threshold_bracket_width": 1.265970772656999e-09,
+    "grid_minimum_energy": -0.6796628959741896,
+    "grid_minimum_over_U": -1.0,
+    "grid_minimum_distances": [
+      1.122462048309373,
+      1.5,
+      1.5
+    ],
+    "seconds": 0.08085961593315005
+  },
+  {
+    "p": 2.0,
+    "inner": 1.3,
+    "h": 0.01,
+    "n_axis": 57,
+    "vertices": 185193,
+    "dimer_energy": -0.6796627260585293,
+    "barrier_energy": 0.4322906941410846,
+    "barrier_over_U": 0.636037077754736,
+    "threshold": -0.24737203191744467,
+    "threshold_bracket_width": 1.2659704673456673e-09,
+    "grid_minimum_energy": -0.6796627260585293,
+    "grid_minimum_over_U": -1.0,
+    "grid_minimum_distances": [
+      1.122462048309373,
+      1.5,
+      1.5
+    ],
+    "seconds": 0.0801055422052741
+  },
+  {
+    "p": 4.0,
+    "inner": 1.3,
+    "h": 0.01,
+    "n_axis": 57,
+    "vertices": 185193,
+    "dimer_energy": -0.6796620463963129,
+    "barrier_energy": 0.6032104491498319,
+    "barrier_over_U": 0.8875152766704559,
+    "threshold": -0.076451597246481,
+    "threshold_bracket_width": 1.2659692044669768e-09,
+    "grid_minimum_energy": -0.6796620463963129,
+    "grid_minimum_over_U": -1.0,
+    "grid_minimum_distances": [
+      1.122462048309373,
+      1.5,
+      1.5
+    ],
+    "seconds": 0.07856068108230829
+  },
+  {
+    "p": 8.0,
+    "inner": 1.3,
+    "h": 0.01,
+    "n_axis": 57,
+    "vertices": 185193,
+    "dimer_energy": -0.6796606870739191,
+    "barrier_energy": 0.6285550540616178,
+    "barrier_over_U": 0.9248071368783713,
+    "threshold": -0.051105633012301366,
+    "threshold_bracket_width": 1.2659666787095958e-09,
+    "grid_minimum_energy": -0.6796606870739191,
+    "grid_minimum_over_U": -1.0,
+    "grid_minimum_distances": [
+      1.122462048309373,
+      1.5,
+      1.5
+    ],
+    "seconds": 0.07607245398685336
+  },
+  {
+    "p": 0.6,
+    "inner": 1.2,
+    "h": 0.01,
+    "n_axis": 57,
+    "vertices": 185193,
+    "dimer_energy": -0.6796632018224852,
+    "barrier_energy": 0.0,
+    "barrier_over_U": 0.0,
+    "threshold": -0.6796632018224852,
+    "threshold_bracket_width": 0.0,
+    "grid_minimum_energy": -1.0547326479210068,
+    "grid_minimum_over_U": -1.5518460394689464,
+    "grid_minimum_distances": [
+      1.122462048309373,
+      1.122462048309373,
+      1.122462048309373
+    ],
+    "seconds": 0.04030197090469301
+  },
+  {
+    "p": 0.8,
+    "inner": 1.2,
+    "h": 0.01,
+    "n_axis": 57,
+    "vertices": 185193,
+    "dimer_energy": -0.6796631338561854,
+    "barrier_energy": 0.04702165198581998,
+    "barrier_over_U": 0.06918376125395322,
+    "threshold": -0.6326414818703654,
+    "threshold_bracket_width": 1.265971216746209e-09,
+    "grid_minimum_energy": -0.8466777330316055,
+    "grid_minimum_over_U": -1.2457314379078268,
+    "grid_minimum_distances": [
+      1.122462048309373,
+      1.122462048309373,
+      1.122462048309373
+    ],
+    "seconds": 0.08474871492944658
+  },
+  {
+    "p": 1.0,
+    "inner": 1.2,
+    "h": 0.01,
+    "n_axis": 57,
+    "vertices": 185193,
+    "dimer_energy": -0.6796630658898923,
+    "barrier_energy": 0.11733017868004159,
+    "barrier_over_U": 0.172629917040467,
+    "threshold": -0.5623328872098508,
+    "threshold_bracket_width": 1.2659711057239065e-09,
+    "grid_minimum_energy": -0.6890621533002815,
+    "grid_minimum_over_U": -1.0138290395375285,
+    "grid_minimum_distances": [
+      1.122462048309373,
+      1.48,
+      1.48
+    ],
+    "seconds": 0.08298772806301713
+  },
+  {
+    "p": 1.5,
+    "inner": 1.2,
+    "h": 0.01,
+    "n_axis": 57,
+    "vertices": 185193,
+    "dimer_energy": -0.6796628959741896,
+    "barrier_energy": 0.26936930481379207,
+    "barrier_over_U": 0.39632780663669104,
+    "threshold": -0.41029359116039754,
+    "threshold_bracket_width": 1.265970772656999e-09,
+    "grid_minimum_energy": -0.6824458460005285,
+    "grid_minimum_over_U": -1.0040946034318232,
+    "grid_minimum_distances": [
+      1.49,
+      1.49,
+      1.122462048309373
+    ],
+    "seconds": 0.07996713602915406
+  },
+  {
+    "p": 2.0,
+    "inner": 1.2,
+    "h": 0.01,
+    "n_axis": 57,
+    "vertices": 185193,
+    "dimer_energy": -0.6796627260585293,
+    "barrier_energy": 0.38434392446100785,
+    "barrier_over_U": 0.565492132678628,
+    "threshold": -0.29531880159752144,
+    "threshold_bracket_width": 1.265970495101243e-09,
+    "grid_minimum_energy": -0.6796627260585293,
+    "grid_minimum_over_U": -1.0,
+    "grid_minimum_distances": [
+      1.122462048309373,
+      1.5,
+      1.5
+    ],
+    "seconds": 0.08098826906643808
+  },
+  {
+    "p": 4.0,
+    "inner": 1.2,
+    "h": 0.01,
+    "n_axis": 57,
+    "vertices": 185193,
+    "dimer_energy": -0.6796620463963129,
+    "barrier_energy": 0.5591427317798674,
+    "barrier_over_U": 0.8226775862276554,
+    "threshold": -0.12051931461644544,
+    "threshold_bracket_width": 1.2659692183447646e-09,
+    "grid_minimum_energy": -0.6796620463963129,
+    "grid_minimum_over_U": -1.0,
+    "grid_minimum_distances": [
+      1.122462048309373,
+      1.5,
+      1.5
+    ],
+    "seconds": 0.07896557101048529
+  },
+  {
+    "p": 8.0,
+    "inner": 1.2,
+    "h": 0.01,
+    "n_axis": 57,
+    "vertices": 185193,
+    "dimer_energy": -0.6796606870739191,
+    "barrier_energy": 0.6009159162349105,
+    "barrier_over_U": 0.8841410540044308,
+    "threshold": -0.07874477083900866,
+    "threshold_bracket_width": 1.2659666925873836e-09,
+    "grid_minimum_energy": -0.6796606870739191,
+    "grid_minimum_over_U": -1.0,
+    "grid_minimum_distances": [
+      1.122462048309373,
+      1.5,
+      1.5
+    ],
+    "seconds": 0.07706303591839969
+  },
+  {
+    "p": 0.6,
+    "inner": 1.15,
+    "h": 0.01,
+    "n_axis": 57,
+    "vertices": 185193,
+    "dimer_energy": -0.6796632018224852,
+    "barrier_energy": 0.0,
+    "barrier_over_U": 0.0,
+    "threshold": -0.6796632018224852,
+    "threshold_bracket_width": 0.0,
+    "grid_minimum_energy": -1.0547326479210068,
+    "grid_minimum_over_U": -1.5518460394689464,
+    "grid_minimum_distances": [
+      1.122462048309373,
+      1.122462048309373,
+      1.122462048309373
+    ],
+    "seconds": 0.04030255298130214
+  },
+  {
+    "p": 0.8,
+    "inner": 1.15,
+    "h": 0.01,
+    "n_axis": 57,
+    "vertices": 185193,
+    "dimer_energy": -0.6796631338561854,
+    "barrier_energy": 0.011044006471844003,
+    "barrier_over_U": 0.016249235719442274,
+    "threshold": -0.6686191273843414,
+    "threshold_bracket_width": 1.2659713277685114e-09,
+    "grid_minimum_energy": -0.8466777330316055,
+    "grid_minimum_over_U": -1.2457314379078268,
+    "grid_minimum_distances": [
+      1.122462048309373,
+      1.122462048309373,
+      1.122462048309373
+    ],
+    "seconds": 0.08433546009473503
+  },
+  {
+    "p": 1.0,
+    "inner": 1.15,
+    "h": 0.01,
+    "n_axis": 57,
+    "vertices": 185193,
+    "dimer_energy": -0.6796630658898923,
+    "barrier_energy": 0.08117431335057068,
+    "barrier_over_U": 0.11943316832184786,
+    "threshold": -0.5984887525393217,
+    "threshold_bracket_width": 1.2659711057239065e-09,
+    "grid_minimum_energy": -0.6928815513154106,
+    "grid_minimum_over_U": -1.0194485857609625,
+    "grid_minimum_distances": [
+      1.122462048309373,
+      1.48,
+      1.48
+    ],
+    "seconds": 0.0819342469330877
+  },
+  {
+    "p": 1.5,
+    "inner": 1.15,
+    "h": 0.01,
+    "n_axis": 57,
+    "vertices": 185193,
+    "dimer_energy": -0.6796628959741896,
+    "barrier_energy": 0.23836919561334097,
+    "barrier_over_U": 0.3507167994976043,
+    "threshold": -0.44129370036084864,
+    "threshold_bracket_width": 1.2659708281681503e-09,
+    "grid_minimum_energy": -0.6839136475359017,
+    "grid_minimum_over_U": -1.0062542057053434,
+    "grid_minimum_distances": [
+      1.122462048309373,
+      1.49,
+      1.49
+    ],
+    "seconds": 0.0798205069731921
+  },
+  {
+    "p": 2.0,
+    "inner": 1.15,
+    "h": 0.01,
+    "n_axis": 57,
+    "vertices": 185193,
+    "dimer_energy": -0.6796627260585293,
+    "barrier_energy": 0.3605886758294186,
+    "barrier_over_U": 0.5305406078696251,
+    "threshold": -0.3190740502291107,
+    "threshold_bracket_width": 1.265970495101243e-09,
+    "grid_minimum_energy": -0.6801139986419791,
+    "grid_minimum_over_U": -1.000663965473091,
+    "grid_minimum_distances": [
+      1.122462048309373,
+      1.49,
+      1.49
+    ],
+    "seconds": 0.08112508896738291
+  },
+  {
+    "p": 4.0,
+    "inner": 1.15,
+    "h": 0.01,
+    "n_axis": 57,
+    "vertices": 185193,
+    "dimer_energy": -0.6796620463963129,
+    "barrier_energy": 0.5357629933723329,
+    "barrier_over_U": 0.7882785219699144,
+    "threshold": -0.14389905302397998,
+    "threshold_bracket_width": 1.265969190589189e-09,
+    "grid_minimum_energy": -0.6796620463963129,
+    "grid_minimum_over_U": -1.0,
+    "grid_minimum_distances": [
+      1.122462048309373,
+      1.5,
+      1.5
+    ],
+    "seconds": 0.07973880902864039
+  },
+  {
+    "p": 8.0,
+    "inner": 1.15,
+    "h": 0.01,
+    "n_axis": 57,
+    "vertices": 185193,
+    "dimer_energy": -0.6796606870739191,
+    "barrier_energy": 0.5863168049167925,
+    "barrier_over_U": 0.8626610543578863,
+    "threshold": -0.09334388215712662,
+    "threshold_bracket_width": 1.2659666787095958e-09,
+    "grid_minimum_energy": -0.6796606870739191,
+    "grid_minimum_over_U": -1.0,
+    "grid_minimum_distances": [
+      1.122462048309373,
+      1.5,
+      1.5
+    ],
+    "seconds": 0.07736392901279032
+  },
+  {
+    "p": 2.0,
+    "inner": 1.3,
+    "h": 0.005,
+    "n_axis": 112,
+    "vertices": 1404928,
+    "dimer_energy": -0.6796627260585293,
+    "barrier_energy": 0.4322443153125569,
+    "barrier_over_U": 0.6359688397496939,
+    "threshold": -0.2474184107459724,
+    "threshold_bracket_width": 1.2659704673456673e-09,
+    "grid_minimum_energy": -0.6796627260585293,
+    "grid_minimum_over_U": -1.0,
+    "grid_minimum_distances": [
+      1.122462048309373,
+      1.5,
+      1.5
+    ],
+    "path_nodes": 155,
+    "path_peak_distances": [
+      1.122462048309373,
+      1.325,
+      1.495
+    ],
+    "dense_path_barrier_over_U": 0.6359750372754357,
+    "barrier_26_neighbors_over_U": 0.6359688397496939,
+    "seconds": 3.5875271998811513
+  },
+  {
+    "p": 4.0,
+    "inner": 1.3,
+    "h": 0.005,
+    "n_axis": 112,
+    "vertices": 1404928,
+    "dimer_energy": -0.6796620463963129,
+    "barrier_energy": 0.6029256364599798,
+    "barrier_over_U": 0.8870962262153624,
+    "threshold": -0.07673640993633307,
+    "threshold_bracket_width": 1.2659692183447646e-09,
+    "grid_minimum_energy": -0.6796620463963129,
+    "grid_minimum_over_U": -1.0,
+    "grid_minimum_distances": [
+      1.122462048309373,
+      1.5,
+      1.5
+    ],
+    "path_nodes": 159,
+    "path_peak_distances": [
+      1.45,
+      1.45,
+      1.4849999999999999
+    ],
+    "dense_path_barrier_over_U": 0.8870962248886346,
+    "barrier_26_neighbors_over_U": 0.8868596896548286,
+    "seconds": 0.996477180859074
+  },
+  {
+    "p": 8.0,
+    "inner": 1.3,
+    "h": 0.005,
+    "n_axis": 112,
+    "vertices": 1404928,
+    "dimer_energy": -0.6796606870739191,
+    "barrier_energy": 0.6284710698319405,
+    "barrier_over_U": 0.9246835689991713,
+    "threshold": -0.05118961724197868,
+    "threshold_bracket_width": 1.2659666856484897e-09,
+    "grid_minimum_energy": -0.6796606870739191,
+    "grid_minimum_over_U": -1.0,
+    "grid_minimum_distances": [
+      1.122462048309373,
+      1.5,
+      1.5
+    ],
+    "path_nodes": 159,
+    "path_peak_distances": [
+      1.47,
+      1.47,
+      1.4849999999999999
+    ],
+    "dense_path_barrier_over_U": 0.9246835689510785,
+    "barrier_26_neighbors_over_U": 0.9242810334148297,
+    "seconds": 0.9597639669664204
+  },
+  {
+    "p": 2.0,
+    "inner": 1.3,
+    "h": 0.0025,
+    "n_axis": 222,
+    "vertices": 10941048,
+    "dimer_energy": -0.6796627260585293,
+    "barrier_energy": 0.4322443153125569,
+    "barrier_over_U": 0.6359688397496939,
+    "threshold": -0.2474184107459724,
+    "threshold_bracket_width": 1.2659704673456673e-09,
+    "grid_minimum_energy": -0.6800705218513204,
+    "grid_minimum_over_U": -1.0005999972885906,
+    "grid_minimum_distances": [
+      1.122462048309373,
+      1.4975,
+      1.4975
+    ],
+    "path_nodes": 309,
+    "path_peak_distances": [
+      1.122462048309373,
+      1.325,
+      1.495
+    ],
+    "dense_path_barrier_over_U": 0.6359750372754357,
+    "barrier_26_neighbors_over_U": 0.6359688397496939,
+    "seconds": 7.03327268990688
+  },
+  {
+    "p": 4.0,
+    "inner": 1.3,
+    "h": 0.0025,
+    "n_axis": 222,
+    "vertices": 10941048,
+    "dimer_energy": -0.6796620463963129,
+    "barrier_energy": 0.6029256364599798,
+    "barrier_over_U": 0.8870962262153624,
+    "threshold": -0.07673640993633307,
+    "threshold_bracket_width": 1.2659692183447646e-09,
+    "grid_minimum_energy": -0.6796620463963129,
+    "grid_minimum_over_U": -1.0,
+    "grid_minimum_distances": [
+      1.122462048309373,
+      1.5,
+      1.5
+    ],
+    "path_nodes": 317,
+    "path_peak_distances": [
+      1.45,
+      1.45,
+      1.4849999999999999
+    ],
+    "dense_path_barrier_over_U": 0.8870962248886346,
+    "barrier_26_neighbors_over_U": 0.8870125778776483,
+    "seconds": 7.1286627310328186
+  },
+  {
+    "p": 8.0,
+    "inner": 1.3,
+    "h": 0.0025,
+    "n_axis": 222,
+    "vertices": 10941048,
+    "dimer_energy": -0.6796606870739191,
+    "barrier_energy": 0.6284131126112763,
+    "barrier_over_U": 0.9245982952415943,
+    "threshold": -0.05124757446264281,
+    "threshold_bracket_width": 1.2659666856484897e-09,
+    "grid_minimum_energy": -0.6796606870739191,
+    "grid_minimum_over_U": -1.0,
+    "grid_minimum_distances": [
+      1.122462048309373,
+      1.5,
+      1.5
+    ],
+    "path_nodes": 315,
+    "path_peak_distances": [
+      1.47,
+      1.47,
+      1.4874999999999998
+    ],
+    "dense_path_barrier_over_U": 0.9245982934304502,
+    "barrier_26_neighbors_over_U": 0.924499537489112,
+    "seconds": 8.605547458864748
+  },
+  {
+    "p": 2.0,
+    "inner": 1.3,
+    "h": 0.00125,
+    "n_axis": 442,
+    "vertices": 86350888,
+    "dimer_energy": -0.6796627260585293,
+    "barrier_energy": 0.4322434810380107,
+    "barrier_over_U": 0.6359676122665405,
+    "threshold": -0.2474192450205186,
+    "threshold_bracket_width": 1.265970495101243e-09,
+    "grid_minimum_energy": -0.6801268826879805,
+    "grid_minimum_over_U": -1.000682922001833,
+    "grid_minimum_distances": [
+      1.122462048309373,
+      1.4987499999999998,
+      1.4987499999999998
+    ],
+    "path_nodes": 613,
+    "path_peak_distances": [
+      1.122462048309373,
+      1.325,
+      1.4962499999999999
+    ],
+    "dense_path_barrier_over_U": 0.6359736795817997,
+    "barrier_26_neighbors_over_U": 0.6359676122665405,
+    "seconds": 50.4358374531148
+  },
+  {
+    "p": 4.0,
+    "inner": 1.3,
+    "h": 0.00125,
+    "n_axis": 442,
+    "vertices": 86350888,
+    "dimer_energy": -0.6796620463963129,
+    "barrier_energy": 0.602924281872921,
+    "barrier_over_U": 0.8870942331850529,
+    "threshold": -0.0767377645233919,
+    "threshold_bracket_width": 1.2659692183447646e-09,
+    "grid_minimum_energy": -0.6796620463963129,
+    "grid_minimum_over_U": -1.0,
+    "grid_minimum_distances": [
+      1.122462048309373,
+      1.5,
+      1.5
+    ],
+    "path_nodes": 631,
+    "path_peak_distances": [
+      1.45125,
+      1.45125,
+      1.4849999999999999
+    ],
+    "dense_path_barrier_over_U": 0.8870942314351973,
+    "barrier_26_neighbors_over_U": 0.88706396228382,
+    "seconds": 42.780347649008036
+  },
+  {
+    "p": 8.0,
+    "inner": 1.3,
+    "h": 0.00125,
+    "n_axis": 442,
+    "vertices": 86350888,
+    "dimer_energy": -0.6796606870739191,
+    "barrier_energy": 0.6284107667750147,
+    "barrier_over_U": 0.9245948437601328,
+    "threshold": -0.05124992029890438,
+    "threshold_bracket_width": 1.2659666787095958e-09,
+    "grid_minimum_energy": -0.6796606870739191,
+    "grid_minimum_over_U": -1.0,
+    "grid_minimum_distances": [
+      1.122462048309373,
+      1.5,
+      1.5
+    ],
+    "path_nodes": 625,
+    "path_peak_distances": [
+      1.46875,
+      1.46875,
+      1.48875
+    ],
+    "dense_path_barrier_over_U": 0.924594842325739,
+    "barrier_26_neighbors_over_U": 0.9245536489250832,
+    "seconds": 41.44912425405346
+  }
+]

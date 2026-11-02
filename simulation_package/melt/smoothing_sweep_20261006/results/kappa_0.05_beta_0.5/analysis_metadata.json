@@ -1,0 +1,15 @@
+{
+  "case": {
+    "case_index": 3,
+    "case_id": "kappa_0.05_beta_0.5",
+    "smooth_kappa": 0.05,
+    "smooth_beta": 0.5,
+    "reference": false
+  },
+  "source_manifest": "/scratch/gpfs/WEBB/mc7345/REACTIVELJ_PAPER/simulation_package/melt/smoothing_sweep_20261006/manifest.json",
+  "uncertainty": "Independent-replicate SEM; fitted mean-correlation persistence uses 250 replicate bootstrap resamples.",
+  "persistence_definition": "Endpoint pair-state correlation, initial semilog-linear exponential fit; identical melt estimator.",
+  "turnover_definition": "New saved-frame bonds classified using prior-frame open states; rates per prior open-sticker time, plotted per tau_R0.",
+  "gelation_definition": "(1 - p_open - 1/(f-1))/(1/(f-1)), identical melt mean-field indicator.",
+  "status": "complete"
+}

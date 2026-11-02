@@ -1,0 +1,338 @@
+[
+  {
+    "p": 1.0,
+    "inner": 1.3,
+    "h": 0.005,
+    "n_axis": 112,
+    "vertices": 1404928,
+    "dimer_energy": -0.6796630658898923,
+    "barrier_energy": 0.194840371583323,
+    "barrier_over_U": 0.28667200170457374,
+    "threshold": -0.4848226943065693,
+    "threshold_bracket_width": 1.2659711057239065e-09,
+    "grid_minimum_energy": -0.6834158445409951,
+    "grid_minimum_over_U": -1.005521528003275,
+    "grid_minimum_distances": [
+      1.122462048309373,
+      1.495,
+      1.495
+    ],
+    "path_nodes": 159,
+    "path_peak_distances": [
+      1.122462048309373,
+      1.345,
+      1.4849999999999999
+    ],
+    "dense_path_barrier_over_U": 0.28667706456401826,
+    "barrier_26_neighbors_over_U": 0.28667200170457374,
+    "seconds": 1.8923583009745926
+  },
+  {
+    "p": 1.5,
+    "inner": 1.3,
+    "h": 0.005,
+    "n_axis": 112,
+    "vertices": 1404928,
+    "dimer_energy": -0.6796628959741896,
+    "barrier_energy": 0.33236133410937563,
+    "barrier_over_U": 0.4890090897679328,
+    "threshold": -0.347301561864814,
+    "threshold_bracket_width": 1.265970772656999e-09,
+    "grid_minimum_energy": -0.6806614533034707,
+    "grid_minimum_over_U": -1.0014691950012216,
+    "grid_minimum_distances": [
+      1.495,
+      1.495,
+      1.122462048309373
+    ],
+    "path_nodes": 155,
+    "path_peak_distances": [
+      1.122462048309373,
+      1.33,
+      1.495
+    ],
+    "dense_path_barrier_over_U": 0.48906751267786985,
+    "barrier_26_neighbors_over_U": 0.4890090897679328,
+    "seconds": 0.810805574990809
+  },
+  {
+    "p": 1.0,
+    "inner": 1.2,
+    "h": 0.005,
+    "n_axis": 112,
+    "vertices": 1404928,
+    "dimer_energy": -0.6796630658898923,
+    "barrier_energy": 0.11733017868004159,
+    "barrier_over_U": 0.172629917040467,
+    "threshold": -0.5623328872098508,
+    "threshold_bracket_width": 1.2659711057239065e-09,
+    "grid_minimum_energy": -0.6892184101501467,
+    "grid_minimum_over_U": -1.014058942937768,
+    "grid_minimum_distances": [
+      1.122462048309373,
+      1.4849999999999999,
+      1.4849999999999999
+    ],
+    "path_nodes": 165,
+    "path_peak_distances": [
+      1.122462048309373,
+      1.31,
+      1.47
+    ],
+    "dense_path_barrier_over_U": 0.17268060395311438,
+    "barrier_26_neighbors_over_U": 0.172629917040467,
+    "seconds": 0.8395015569403768
+  },
+  {
+    "p": 1.5,
+    "inner": 1.2,
+    "h": 0.005,
+    "n_axis": 112,
+    "vertices": 1404928,
+    "dimer_energy": -0.6796628959741896,
+    "barrier_energy": 0.2692899474344261,
+    "barrier_over_U": 0.3962110467255115,
+    "threshold": -0.4103729485397635,
+    "threshold_bracket_width": 1.2659708281681503e-09,
+    "grid_minimum_energy": -0.6824458460005285,
+    "grid_minimum_over_U": -1.0040946034318232,
+    "grid_minimum_distances": [
+      1.49,
+      1.49,
+      1.122462048309373
+    ],
+    "path_nodes": 159,
+    "path_peak_distances": [
+      1.122462048309373,
+      1.275,
+      1.4849999999999999
+    ],
+    "dense_path_barrier_over_U": 0.39622590645424827,
+    "barrier_26_neighbors_over_U": 0.3962110467255115,
+    "seconds": 0.7825071529950947
+  },
+  {
+    "p": 2.0,
+    "inner": 1.2,
+    "h": 0.005,
+    "n_axis": 112,
+    "vertices": 1404928,
+    "dimer_energy": -0.6796627260585293,
+    "barrier_energy": 0.38434392446100785,
+    "barrier_over_U": 0.565492132678628,
+    "threshold": -0.29531880159752144,
+    "threshold_bracket_width": 1.265970495101243e-09,
+    "grid_minimum_energy": -0.6807251546458134,
+    "grid_minimum_over_U": -1.0015631702998418,
+    "grid_minimum_distances": [
+      1.122462048309373,
+      1.495,
+      1.495
+    ],
+    "path_nodes": 157,
+    "path_peak_distances": [
+      1.122462048309373,
+      1.26,
+      1.49
+    ],
+    "dense_path_barrier_over_U": 0.5655009596303167,
+    "barrier_26_neighbors_over_U": 0.565492132678628,
+    "seconds": 0.790400049998425
+  },
+  {
+    "p": 4.0,
+    "inner": 1.2,
+    "h": 0.005,
+    "n_axis": 112,
+    "vertices": 1404928,
+    "dimer_energy": -0.6796620463963129,
+    "barrier_energy": 0.5591427317798674,
+    "barrier_over_U": 0.8226775862276554,
+    "threshold": -0.12051931461644544,
+    "threshold_bracket_width": 1.2659692183447646e-09,
+    "grid_minimum_energy": -0.6796620463963129,
+    "grid_minimum_over_U": -1.0,
+    "grid_minimum_distances": [
+      1.122462048309373,
+      1.5,
+      1.5
+    ],
+    "path_nodes": 161,
+    "path_peak_distances": [
+      1.42,
+      1.42,
+      1.48
+    ],
+    "dense_path_barrier_over_U": 0.8226775857914194,
+    "barrier_26_neighbors_over_U": 0.8223607439563625,
+    "seconds": 0.7693050919333473
+  },
+  {
+    "p": 8.0,
+    "inner": 1.2,
+    "h": 0.005,
+    "n_axis": 112,
+    "vertices": 1404928,
+    "dimer_energy": -0.6796606870739191,
+    "barrier_energy": 0.6006528584861448,
+    "barrier_over_U": 0.8837540112435817,
+    "threshold": -0.0790078285877743,
+    "threshold_bracket_width": 1.2659666787095958e-09,
+    "grid_minimum_energy": -0.6796606870739191,
+    "grid_minimum_over_U": -1.0,
+    "grid_minimum_distances": [
+      1.122462048309373,
+      1.5,
+      1.5
+    ],
+    "path_nodes": 159,
+    "path_peak_distances": [
+      1.45,
+      1.45,
+      1.4849999999999999
+    ],
+    "dense_path_barrier_over_U": 0.8837540101654663,
+    "barrier_26_neighbors_over_U": 0.8834198356898231,
+    "seconds": 0.7404028859455138
+  },
+  {
+    "p": 1.0,
+    "inner": 1.15,
+    "h": 0.005,
+    "n_axis": 112,
+    "vertices": 1404928,
+    "dimer_energy": -0.6796630658898923,
+    "barrier_energy": 0.08119742618517711,
+    "barrier_over_U": 0.11946717463433766,
+    "threshold": -0.5984656397047152,
+    "threshold_bracket_width": 1.2659711057239065e-09,
+    "grid_minimum_energy": -0.693220853001501,
+    "grid_minimum_over_U": -1.0199478061881402,
+    "grid_minimum_distances": [
+      1.122462048309373,
+      1.475,
+      1.475
+    ],
+    "path_nodes": 169,
+    "path_peak_distances": [
+      1.122462048309373,
+      1.295,
+      1.46
+    ],
+    "dense_path_barrier_over_U": 0.11950005701431635,
+    "barrier_26_neighbors_over_U": 0.11946717463433766,
+    "seconds": 0.82161433796864
+  },
+  {
+    "p": 1.5,
+    "inner": 1.15,
+    "h": 0.005,
+    "n_axis": 112,
+    "vertices": 1404928,
+    "dimer_energy": -0.6796628959741896,
+    "barrier_energy": 0.23839864462600446,
+    "barrier_over_U": 0.3507601283490657,
+    "threshold": -0.44126425134818514,
+    "threshold_bracket_width": 1.265970772656999e-09,
+    "grid_minimum_energy": -0.6839136475359017,
+    "grid_minimum_over_U": -1.0062542057053434,
+    "grid_minimum_distances": [
+      1.122462048309373,
+      1.49,
+      1.49
+    ],
+    "path_nodes": 161,
+    "path_peak_distances": [
+      1.122462048309373,
+      1.255,
+      1.48
+    ],
+    "dense_path_barrier_over_U": 0.35078780113292307,
+    "barrier_26_neighbors_over_U": 0.3507601283490657,
+    "seconds": 0.7840706720016897
+  },
+  {
+    "p": 2.0,
+    "inner": 1.15,
+    "h": 0.005,
+    "n_axis": 112,
+    "vertices": 1404928,
+    "dimer_energy": -0.6796627260585293,
+    "barrier_energy": 0.3605886758294186,
+    "barrier_over_U": 0.5305406078696251,
+    "threshold": -0.3190740502291107,
+    "threshold_bracket_width": 1.265970495101243e-09,
+    "grid_minimum_energy": -0.6812180858558017,
+    "grid_minimum_over_U": -1.0022884288598437,
+    "grid_minimum_distances": [
+      1.122462048309373,
+      1.495,
+      1.495
+    ],
+    "path_nodes": 157,
+    "path_peak_distances": [
+      1.122462048309373,
+      1.23,
+      1.49
+    ],
+    "dense_path_barrier_over_U": 0.5305587411142961,
+    "barrier_26_neighbors_over_U": 0.5305406078696251,
+    "seconds": 1.2190695320023224
+  },
+  {
+    "p": 4.0,
+    "inner": 1.15,
+    "h": 0.005,
+    "n_axis": 112,
+    "vertices": 1404928,
+    "dimer_energy": -0.6796620463963129,
+    "barrier_energy": 0.5355794037829116,
+    "barrier_over_U": 0.7880084030330181,
+    "threshold": -0.1440826426134013,
+    "threshold_bracket_width": 1.2659692183447646e-09,
+    "grid_minimum_energy": -0.6796620463963129,
+    "grid_minimum_over_U": -1.0,
+    "grid_minimum_distances": [
+      1.122462048309373,
+      1.5,
+      1.5
+    ],
+    "path_nodes": 161,
+    "path_peak_distances": [
+      1.405,
+      1.405,
+      1.48
+    ],
+    "dense_path_barrier_over_U": 0.7880084015306066,
+    "barrier_26_neighbors_over_U": 0.787800400989483,
+    "seconds": 0.7899959780042991
+  },
+  {
+    "p": 8.0,
+    "inner": 1.15,
+    "h": 0.005,
+    "n_axis": 112,
+    "vertices": 1404928,
+    "dimer_energy": -0.6796606870739191,
+    "barrier_energy": 0.5860923920669586,
+    "barrier_over_U": 0.8623308707028627,
+    "threshold": -0.09356829500696053,
+    "threshold_bracket_width": 1.2659666787095958e-09,
+    "grid_minimum_energy": -0.6796606870739191,
+    "grid_minimum_over_U": -1.0,
+    "grid_minimum_distances": [
+      1.122462048309373,
+      1.5,
+      1.5
+    ],
+    "path_nodes": 161,
+    "path_peak_distances": [
+      1.4449999999999998,
+      1.4449999999999998,
+      1.48
+    ],
+    "dense_path_barrier_over_U": 0.8623308700502652,
+    "barrier_26_neighbors_over_U": 0.8620461720560298,
+    "seconds": 0.7578985310392454
+  }
+]
